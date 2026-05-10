@@ -1,0 +1,236 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String         @id @default(cuid())
+  name            String
+  email           String         @unique
+  passwordHash    String
+  phone           String?
+  avatar          String?
+  role            Role           @default(USER)
+  isEmailVerified Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  bookings        Booking[]
+  reviews         Review[]
+  notifications   Notification[]
+  refreshTokens   RefreshToken[]
+  chatThreads     ChatThread[]
+  mentor          Mentor?
+}
+
+model Mentor {
+  id                String           @id @default(cuid())
+  userId            String           @unique
+  user              User             @relation(fields: [userId], references: [id])
+  displayName       String
+  bio               String           @db.Text
+  avatar            String?
+  institutionType   InstitutionType
+  institutionName   String
+  institutionEmail  String           @unique
+  department        String?
+  graduationYear    Int?
+  currentRole       String?
+  company           String?
+  linkedinUrl       String?
+  expertise         String[]
+  categoryId        String
+  category          Category         @relation(fields: [categoryId], references: [id])
+  approvalStatus    ApprovalStatus   @default(PENDING)
+  rejectionReason   String?
+  isActive          Boolean          @default(false)
+  pricePerSession   Int
+  sessionDuration   Int              @default(30)
+  googleCalendarId  String?
+  totalSessions     Int              @default(0)
+  rating            Float            @default(0)
+  availabilities    Availability[]
+  bookings          Booking[]
+  reviews           Review[]
+  verificationDocs  VerificationDoc[]
+  notifications     Notification[]
+  earnings          Earning[]
+  chatThreads       ChatThread[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  icon        String?
+  description String?
+  isActive    Boolean  @default(true)
+  mentors     Mentor[]
+}
+
+model Availability {
+  id        String  @id @default(cuid())
+  mentorId  String
+  mentor    Mentor  @relation(fields: [mentorId], references: [id])
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  isActive  Boolean @default(true)
+}
+
+model Booking {
+  id                 String        @id @default(cuid())
+  userId             String
+  user               User          @relation(fields: [userId], references: [id])
+  mentorId           String
+  mentor             Mentor        @relation(fields: [mentorId], references: [id])
+  scheduledAt        DateTime
+  durationMinutes    Int           @default(30)
+  status             BookingStatus @default(PENDING)
+  meetLink           String?
+  googleEventId      String?
+  paymentId          String?
+  paymentStatus      PaymentStatus @default(UNPAID)
+  amountPaid         Int
+  userNotes          String?
+  mentorNotes        String?
+  cancelledBy        String?
+  cancellationReason String?
+  review             Review?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  mentorId  String
+  mentor    Mentor   @relation(fields: [mentorId], references: [id])
+  rating    Int
+  comment   String?  @db.Text
+  isVisible Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model VerificationDoc {
+  id         String   @id @default(cuid())
+  mentorId   String
+  mentor     Mentor   @relation(fields: [mentorId], references: [id])
+  docType    String
+  fileUrl    String
+  uploadedAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  mentorId  String?
+  mentor    Mentor?  @relation(fields: [mentorId], references: [id])
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Earning {
+  id        String    @id @default(cuid())
+  mentorId  String
+  mentor    Mentor    @relation(fields: [mentorId], references: [id])
+  bookingId String
+  amount    Int
+  status    String    @default("PENDING")
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model ChatThread {
+  id                 String       @id @default(cuid())
+  userId             String
+  user               User         @relation(fields: [userId], references: [id])
+  mentorId           String
+  mentor             Mentor       @relation(fields: [mentorId], references: [id])
+  status             ThreadStatus @default(OPEN)
+  userMsgCount       Int          @default(0)
+  mentorMsgCount     Int          @default(0)
+  isLockedForBooking Boolean      @default(false)
+  bookingId          String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  messages           ChatMessage[]
+
+  @@unique([userId, mentorId])
+}
+
+model ChatMessage {
+  id         String     @id @default(cuid())
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id])
+  senderId   String
+  senderRole SenderRole
+  body       String     @db.Text
+  isRead     Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+}
+
+enum ThreadStatus {
+  OPEN
+  LOCKED
+  BOOKED
+  CLOSED
+}
+
+enum SenderRole {
+  USER
+  MENTOR
+}
+
+enum Role {
+  USER
+  MENTOR
+  ADMIN
+}
+
+enum InstitutionType {
+  COLLEGE
+  COMPANY
+  STARTUP
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
