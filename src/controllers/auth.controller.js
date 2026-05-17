@@ -7,6 +7,7 @@ const { sendEmail, welcomeEmailTemplate, emailVerificationTemplate, otpEmailTemp
 const { createNotification } = require('../services/notification.service');
 const config = require('../config/env');
 const crypto = require('crypto');
+const firebaseAdmin = require('../config/firebase');
 
 const prisma = new PrismaClient();
 
@@ -216,4 +217,68 @@ async function resetPassword(req, res) {
   }
 }
 
-module.exports = { register, registerMentor, verifyMentorOTP, verifyEmail, login, refresh, logout, forgotPassword, resetPassword };
+// POST /api/auth/google
+async function googleLogin(req, res) {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) return res.status(400).json({ error: 'ID token is required' });
+
+    // Verify the Firebase ID token
+    const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken);
+    const { email, name, picture, uid } = decodedToken;
+
+    if (!email) return res.status(400).json({ error: 'Email not available from Google account' });
+
+    // Find existing user or create a new one
+    let user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+
+    if (!user) {
+      // Create new user from Google sign-in (no password needed)
+      user = await prisma.user.create({
+        data: {
+          name: name || email.split('@')[0],
+          email: email.toLowerCase(),
+          passwordHash: '', // No password for Google users
+          avatar: picture || null,
+          role: 'USER',
+          isEmailVerified: true, // Google emails are already verified
+        },
+      });
+    } else if (!user.isEmailVerified) {
+      // If user exists but email not verified, mark it verified (Google verified it)
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { isEmailVerified: true },
+      });
+    }
+
+    const accessToken = generateAccessToken({ userId: user.id, role: user.role });
+    const refreshToken = generateRefreshToken({ userId: user.id });
+    await prisma.refreshToken.create({
+      data: { token: refreshToken, userId: user.id, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+    });
+
+    let mentorData = null;
+    if (user.role === 'MENTOR') {
+      mentorData = await prisma.mentor.findUnique({
+        where: { userId: user.id },
+        select: { id: true, approvalStatus: true, isActive: true },
+      });
+    }
+
+    res.json({
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
+      mentor: mentorData,
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    if (error.code === 'auth/id-token-expired') {
+      return res.status(401).json({ error: 'Token expired, please try again' });
+    }
+    res.status(500).json({ error: 'Google login failed' });
+  }
+}
+
+module.exports = { register, registerMentor, verifyMentorOTP, verifyEmail, login, googleLogin, refresh, logout, forgotPassword, resetPassword };
