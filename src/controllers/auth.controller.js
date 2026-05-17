@@ -5,6 +5,7 @@ const { generateOTP, storeOTP, verifyOTP } = require('../utils/otp');
 const { isValidCollegeEmail, isValidCompanyEmail, isValidStartupEmail } = require('../utils/emailDomains');
 const { sendEmail, welcomeEmailTemplate, emailVerificationTemplate, otpEmailTemplate, passwordResetTemplate } = require('../services/email.service');
 const { createNotification } = require('../services/notification.service');
+const { saveUserToFirestore, saveMentorToFirestore, getUserFromFirestore } = require('../services/firestore.service');
 const config = require('../config/env');
 const crypto = require('crypto');
 const firebaseAdmin = require('../config/firebase');
@@ -34,7 +35,21 @@ async function register(req, res) {
     const refreshToken = generateRefreshToken({ userId: user.id });
     await prisma.refreshToken.create({ data: { token: refreshToken, userId: user.id, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
 
-    res.status(201).json({ user: { id: user.id, name: user.name, email: user.email, role: user.role }, accessToken, refreshToken });
+    // Sync user to Firestore
+    try { await saveUserToFirestore(user); } catch (e) { console.warn('Firestore sync failed (register):', e.message); }
+
+    res.status(201).json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        username: null,
+        currentRole: null
+      },
+      accessToken,
+      refreshToken
+    });
   } catch (error) {
     console.error('Register error:', error);
     res.status(500).json({ error: 'Registration failed' });
@@ -110,7 +125,25 @@ async function verifyMentorOTP(req, res) {
     const refreshToken = generateRefreshToken({ userId: user.id });
     await prisma.refreshToken.create({ data: { token: refreshToken, userId: user.id, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
 
-    res.status(201).json({ user: { id: user.id, name: user.name, email: user.email, role: user.role }, mentor: { id: mentor.id, approvalStatus: mentor.approvalStatus }, accessToken, refreshToken });
+    // Sync user and mentor to Firestore
+    try {
+      await saveUserToFirestore(user, { currentRole: mentor.currentRole || null });
+      await saveMentorToFirestore(mentor);
+    } catch (e) { console.warn('Firestore sync failed (mentor register):', e.message); }
+
+    res.status(201).json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        username: null,
+        currentRole: mentor.currentRole || null
+      },
+      mentor: { id: mentor.id, approvalStatus: mentor.approvalStatus },
+      accessToken,
+      refreshToken
+    });
   } catch (error) {
     console.error('Mentor OTP verify error:', error);
     res.status(500).json({ error: 'Verification failed' });
@@ -149,7 +182,27 @@ async function login(req, res) {
       mentorData = await prisma.mentor.findUnique({ where: { userId: user.id }, select: { id: true, approvalStatus: true, isActive: true } });
     }
 
-    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar }, mentor: mentorData, accessToken, refreshToken });
+    // Sync user to Firestore on login
+    try { await saveUserToFirestore(user); } catch (e) { console.warn('Firestore sync failed (login):', e.message); }
+
+    // Fetch enriched Firestore data
+    let firestoreData = null;
+    try { firestoreData = await getUserFromFirestore(user.id); } catch (e) { /* silent */ }
+
+    res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        username: firestoreData?.username || null,
+        currentRole: firestoreData?.currentRole || null,
+      },
+      mentor: mentorData,
+      accessToken,
+      refreshToken
+    });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
@@ -266,8 +319,23 @@ async function googleLogin(req, res) {
       });
     }
 
+    // Sync user to Firestore on Google login
+    try { await saveUserToFirestore(user); } catch (e) { console.warn('Firestore sync failed (google):', e.message); }
+
+    // Fetch enriched Firestore data
+    let firestoreData = null;
+    try { firestoreData = await getUserFromFirestore(user.id); } catch (e) { /* silent */ }
+
     res.json({
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        username: firestoreData?.username || null,
+        currentRole: firestoreData?.currentRole || null,
+      },
       mentor: mentorData,
       accessToken,
       refreshToken,

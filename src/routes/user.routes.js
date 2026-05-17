@@ -13,6 +13,8 @@ router.use(roleGuard('USER', 'MENTOR', 'ADMIN'));
 router.get('/me', user.getProfile);
 router.put('/me', upload.single('avatar'), user.updateProfile);
 router.put('/me/password', user.changePassword);
+router.get('/me/username/check/:username', user.checkUsername);
+router.put('/me/username', user.updateUsername);
 router.get('/me/bookings', user.getBookings);
 router.get('/me/bookings/:id', user.getBookingDetail);
 router.post('/me/bookings/:id/cancel', user.cancelBooking);

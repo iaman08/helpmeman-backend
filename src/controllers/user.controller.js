@@ -2,25 +2,71 @@ const { PrismaClient } = require('@prisma/client');
 const { hashPassword, comparePassword } = require('../utils/hash');
 const { uploadImage } = require('../services/upload.service');
 const { getUserNotifications, markAsRead, markAllReadForUser } = require('../services/notification.service');
+const { saveUserToFirestore, getUserFromFirestore, isUsernameAvailable, setUsername } = require('../services/firestore.service');
 const prisma = new PrismaClient();
 
 async function getProfile(req, res) {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, isEmailVerified: true, createdAt: true } });
-    res.json({ user });
+
+    // Enrich with Firestore data (username, etc.)
+    let firestoreData = null;
+    try { firestoreData = await getUserFromFirestore(req.user.id); } catch (e) { /* silent */ }
+
+    const enrichedUser = {
+      ...user,
+      name: firestoreData?.name || user.name,
+      phone: firestoreData?.phone || user.phone || null,
+      avatar: firestoreData?.avatar || user.avatar || null,
+      username: firestoreData?.username || null,
+      currentRole: firestoreData?.currentRole || null,
+    };
+
+    res.json({ user: enrichedUser });
   } catch (e) { res.status(500).json({ error: 'Failed to get profile' }); }
 }
 
 async function updateProfile(req, res) {
   try {
-    const { name, phone } = req.body;
+    const { name, phone, username, currentRole } = req.body;
     const data = {};
     if (name) data.name = name;
     if (phone !== undefined) data.phone = phone;
     if (req.file) data.avatar = await uploadImage(req.file, 'avatars');
+    
+    // Update basic info in Postgres
     const user = await prisma.user.update({ where: { id: req.user.id }, data, select: { id: true, name: true, email: true, phone: true, avatar: true } });
-    res.json({ user });
-  } catch (e) { res.status(500).json({ error: 'Update failed' }); }
+
+    // Handle Username Uniqueness (if requested)
+    if (username) {
+      const usernameResult = await setUsername(req.user.id, username);
+      if (!usernameResult.success) {
+        return res.status(400).json({ error: usernameResult.error });
+      }
+    }
+
+    // Prepare Firestore Extra Data
+    const extraData = {};
+    if (currentRole !== undefined) extraData.currentRole = currentRole;
+
+    // Sync updated profile to Firestore
+    try { await saveUserToFirestore({ id: req.user.id, ...data }, extraData); } catch (e) { console.warn('Firestore sync failed (updateProfile):', e.message); }
+
+    // Fetch final enriched user
+    let firestoreData = null;
+    try { firestoreData = await getUserFromFirestore(req.user.id); } catch (e) { /* silent */ }
+
+    const enrichedUser = {
+      ...user,
+      name: firestoreData?.name || user.name,
+      phone: firestoreData?.phone || user.phone || null,
+      avatar: firestoreData?.avatar || user.avatar || null,
+      username: firestoreData?.username || null,
+      currentRole: firestoreData?.currentRole || null,
+    };
+
+    res.json({ user: enrichedUser });
+  } catch (e) { console.error('Update failed:', e); res.status(500).json({ error: 'Update failed' }); }
 }
 
 async function changePassword(req, res) {
@@ -113,4 +159,26 @@ async function markAllNotificationsRead(req, res) {
   catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 
-module.exports = { getProfile, updateProfile, changePassword, getBookings, getBookingDetail, cancelBooking, submitReview, getNotifications, markNotificationRead, markAllNotificationsRead };
+async function checkUsername(req, res) {
+  try {
+    const { username } = req.params;
+    if (!username || username.length < 3) {
+      return res.status(400).json({ available: false, error: 'Username must be at least 3 characters' });
+    }
+    const available = await isUsernameAvailable(username.toLowerCase());
+    res.json({ available, username: username.toLowerCase() });
+  } catch (e) { res.status(500).json({ error: 'Username check failed' }); }
+}
+
+async function updateUsername(req, res) {
+  try {
+    const { username } = req.body;
+    const result = await setUsername(req.user.id, username);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+    res.json({ message: 'Username updated', username: username.toLowerCase() });
+  } catch (e) { res.status(500).json({ error: 'Username update failed' }); }
+}
+
+module.exports = { getProfile, updateProfile, changePassword, getBookings, getBookingDetail, cancelBooking, submitReview, getNotifications, markNotificationRead, markAllNotificationsRead, checkUsername, updateUsername };

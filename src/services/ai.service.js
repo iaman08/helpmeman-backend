@@ -18,11 +18,30 @@ function getClient() {
   return groqClient;
 }
 
-// Initialize Upstash Redis
-const redis = new Redis({
-  url: config.upstash.url,
-  token: config.upstash.token,
-});
+// Initialize Upstash Redis or use an in-memory fallback
+let redis;
+if (config.upstash.url && config.upstash.url.startsWith('https://')) {
+  redis = new Redis({
+    url: config.upstash.url,
+    token: config.upstash.token,
+  });
+} else {
+  console.warn('⚠️ Upstash Redis is not configured or invalid. Using in-memory fallback for AI chat history.');
+  redis = {
+    get: async (key) => {
+      if (!global.aiMemoryDb) global.aiMemoryDb = new Map();
+      return global.aiMemoryDb.get(key) || null;
+    },
+    set: async (key, val, options) => {
+      if (!global.aiMemoryDb) global.aiMemoryDb = new Map();
+      global.aiMemoryDb.set(key, val);
+    },
+    del: async (key) => {
+      if (!global.aiMemoryDb) global.aiMemoryDb = new Map();
+      global.aiMemoryDb.delete(key);
+    }
+  };
+}
 
 const TTL = 24 * 60 * 60; // 24 hours in seconds
 const MSG_THRESHOLD = 10;

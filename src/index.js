@@ -23,16 +23,35 @@ const aiRoutes = require('./routes/ai.routes');
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = [config.frontendUrl];
+const corsOriginCheck = (origin, callback) => {
+  if (!origin) return callback(null, true);
+  const isLocalDev = config.nodeEnv === 'development' && (
+    origin.startsWith('http://localhost:') || 
+    origin.startsWith('http://127.0.0.1:') || 
+    origin.startsWith('http://192.168.')
+  );
+  if (allowedOrigins.includes(origin) || isLocalDev) {
+    callback(null, true);
+  } else {
+    callback(new Error('Not allowed by CORS'));
+  }
+};
+
 // Socket.io
 const io = new Server(server, {
-  cors: { origin: config.frontendUrl, methods: ['GET', 'POST'], credentials: true },
+  cors: { origin: corsOriginCheck, methods: ['GET', 'POST'], credentials: true },
 });
 app.io = io;
 setupChatSocket(io);
 
 // Middleware
 app.use(helmet());
-app.use(cors({ origin: config.frontendUrl, credentials: true }));
+
+app.use(cors({
+  origin: corsOriginCheck,
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(generalLimiter);
