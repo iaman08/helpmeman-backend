@@ -32,7 +32,9 @@ const corsOriginCheck = (origin, callback) => {
     origin.startsWith('http://127.0.0.1:') || 
     origin.startsWith('http://192.168.')
   );
-  if (allowedOrigins.includes(origin) || isLocalDev) {
+  const isVercelOrigin = origin.endsWith('.vercel.app') || origin === 'https://helpmeman-frontend.vercel.app';
+  
+  if (allowedOrigins.includes(origin) || isLocalDev || isVercelOrigin) {
     callback(null, true);
   } else {
     callback(new Error('Not allowed by CORS'));
