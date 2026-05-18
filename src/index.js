@@ -1,3 +1,4 @@
+require('dns').setDefaultResultOrder('ipv4first');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -84,8 +85,12 @@ const PORT = config.port;
 server.listen(PORT, () => {
   console.log(`🚀 HelpMeMan backend running on port ${PORT}`);
   console.log(`📡 Socket.io ready`);
-  // Initialize job queue
-  try { initReminderQueue(config.redis.url); } catch (e) { console.warn('Redis queue init skipped'); }
+  // Initialize job queue (skipped in development to avoid Upstash limit-reached console floods)
+  if (config.nodeEnv === 'production') {
+    try { initReminderQueue(config.redis.url); } catch (e) { console.warn('Redis queue init skipped'); }
+  } else {
+    console.log('Skipping Redis reminder queue in development');
+  }
 });
 
 module.exports = { app, server };

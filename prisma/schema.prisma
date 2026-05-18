@@ -24,6 +24,8 @@ model User {
   refreshTokens   RefreshToken[]
   chatThreads     ChatThread[]
   mentor          Mentor?
+  aiSessions      AiSession[]
+  userMemory      UserMemory?
 }
 
 model Mentor {
@@ -233,4 +235,45 @@ enum PaymentStatus {
   UNPAID
   PAID
   REFUNDED
+}
+
+// ─── AI Chat: Sessions, Messages, and User Memory ───────────────────
+
+model AiSession {
+  id               String       @id @default(cuid())
+  userId           String
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String?
+  summary          String?      @db.Text  // compressed summary ≤300 tokens
+  summaryUpdatedAt DateTime?
+  messageCount     Int          @default(0)
+  endedAt          DateTime?
+  bookingId        String?
+  sessionType      String       @default("general")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  messages         AiMessage[]
+}
+
+model AiMessage {
+  id        String    @id @default(cuid())
+  sessionId String
+  session   AiSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      AiRole
+  content   String    @db.Text
+  createdAt DateTime  @default(now())
+}
+
+model UserMemory {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memorySummary String   @db.Text  // rolling distilled memory ≤150 tokens
+  version       Int      @default(1)
+  updatedAt     DateTime @updatedAt
+}
+
+enum AiRole {
+  user
+  assistant
 }
