@@ -33,8 +33,14 @@ const corsOriginCheck = (origin, callback) => {
     origin.startsWith('http://192.168.')
   );
   const isVercelOrigin = origin.endsWith('.vercel.app') || origin === 'https://helpmeman-frontend.vercel.app';
+  const isCustomDomain = 
+    origin === 'https://helpmeman.com' || 
+    origin === 'https://www.helpmeman.com' || 
+    origin.endsWith('.helpmeman.com') ||
+    origin.replace(/\/$/, '') === 'https://helpmeman.com' ||
+    origin.replace(/\/$/, '') === 'https://www.helpmeman.com';
   
-  if (allowedOrigins.includes(origin) || isLocalDev || isVercelOrigin) {
+  if (allowedOrigins.includes(origin) || isLocalDev || isVercelOrigin || isCustomDomain) {
     callback(null, true);
   } else {
     callback(new Error('Not allowed by CORS'));

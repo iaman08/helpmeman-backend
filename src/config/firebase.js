@@ -1,4 +1,5 @@
 const admin = require('firebase-admin');
+const path = require('path');
 
 // Initialize Firebase Admin with service account for full Firestore access
 // Priority: FIREBASE_SERVICE_ACCOUNT_PATH env var > inline credentials > project ID only
@@ -8,7 +9,7 @@ if (!admin.apps.length) {
 
   if (serviceAccountPath) {
     // Use service account key file (recommended for local development)
-    const serviceAccount = require(serviceAccountPath);
+    const serviceAccount = require(path.resolve(serviceAccountPath));
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       projectId,
