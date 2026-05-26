@@ -1,5 +1,36 @@
 const crypto = require('crypto');
 
+// ─── OTP Store ─────────────────────────────────────────────────
+// Uses Upstash Redis in production, in-memory Map for development.
+// Each entry stores: { otp, expiresAt, attempts, lastSentAt, sentCount }
+
+let redisClient = null;
+
+try {
+  const config = require('../config/env');
+  if (config.upstash?.url && config.upstash?.token) {
+    const { Redis } = require('@upstash/redis');
+    redisClient = new Redis({
+      url: config.upstash.url,
+      token: config.upstash.token,
+    });
+    console.log('✅ OTP store: Upstash Redis');
+  }
+} catch (e) {
+  console.warn('⚠️ OTP store: falling back to in-memory (Redis unavailable)');
+}
+
+// In-memory fallback
+const otpStore = new Map();
+
+// ─── Constants ─────────────────────────────────────────────────
+const OTP_EXPIRY_MS = 10 * 60 * 1000;        // 10 minutes
+const OTP_COOLDOWN_MS = 60 * 1000;            // 1 request per 60 seconds
+const MAX_ATTEMPTS = 5;                        // max verification attempts per OTP
+const MAX_SENDS_PER_HOUR = 5;                  // max OTPs per email per hour
+const HOUR_MS = 60 * 60 * 1000;
+
+// ─── Generate a cryptographically random 6-digit OTP ───────────
 function generateOTP(length = 6) {
   const digits = '0123456789';
   let otp = '';
@@ -10,26 +41,178 @@ function generateOTP(length = 6) {
   return otp;
 }
 
-// In-memory OTP store (use Redis in production)
-const otpStore = new Map();
+// ─── Redis key helpers ─────────────────────────────────────────
+function otpKey(email) { return `otp:${email.toLowerCase()}`; }
+function rateKey(email) { return `otp_rate:${email.toLowerCase()}`; }
 
-function storeOTP(email, otp, expiresInMs = 10 * 60 * 1000) {
-  otpStore.set(email.toLowerCase(), {
+// ─── Store OTP ─────────────────────────────────────────────────
+async function storeOTP(email, otp) {
+  const key = email.toLowerCase();
+  const now = Date.now();
+  const entry = {
     otp,
-    expiresAt: Date.now() + expiresInMs,
-  });
-}
+    expiresAt: now + OTP_EXPIRY_MS,
+    attempts: 0,
+    lastSentAt: now,
+  };
 
-function verifyOTP(email, otp) {
-  const entry = otpStore.get(email.toLowerCase());
-  if (!entry) return false;
-  if (Date.now() > entry.expiresAt) {
-    otpStore.delete(email.toLowerCase());
-    return false;
+  if (redisClient) {
+    try {
+      await redisClient.set(otpKey(key), JSON.stringify(entry), { ex: Math.ceil(OTP_EXPIRY_MS / 1000) });
+      // Increment hourly send counter
+      const rk = rateKey(key);
+      const current = await redisClient.incr(rk);
+      if (current === 1) {
+        await redisClient.expire(rk, Math.ceil(HOUR_MS / 1000));
+      }
+    } catch (e) {
+      console.error('Redis storeOTP error, falling back to memory:', e.message);
+      otpStore.set(key, entry);
+    }
+  } else {
+    // In-memory: also track hourly sends
+    const existing = otpStore.get(key);
+    const hourlyCount = (existing && existing.hourlyResetAt > now) ? (existing.hourlySends || 0) : 0;
+    entry.hourlySends = hourlyCount + 1;
+    entry.hourlyResetAt = (existing && existing.hourlyResetAt > now) ? existing.hourlyResetAt : now + HOUR_MS;
+    otpStore.set(key, entry);
   }
-  if (entry.otp !== otp) return false;
-  otpStore.delete(email.toLowerCase());
-  return true;
 }
 
-module.exports = { generateOTP, storeOTP, verifyOTP };
+// ─── Rate limit check: can this email request a new OTP? ───────
+async function canRequestOTP(email) {
+  const key = email.toLowerCase();
+  const now = Date.now();
+
+  if (redisClient) {
+    try {
+      // Check hourly limit
+      const sendCount = await redisClient.get(rateKey(key));
+      if (sendCount && parseInt(sendCount) >= MAX_SENDS_PER_HOUR) {
+        return { allowed: false, reason: 'Too many OTP requests. Try again in an hour.', cooldown: 0 };
+      }
+      // Check cooldown
+      const raw = await redisClient.get(otpKey(key));
+      if (raw) {
+        const entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const elapsed = now - entry.lastSentAt;
+        if (elapsed < OTP_COOLDOWN_MS) {
+          const remaining = Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
+          return { allowed: false, reason: `Please wait ${remaining} seconds before requesting another OTP.`, cooldown: remaining };
+        }
+      }
+      return { allowed: true, cooldown: 0 };
+    } catch (e) {
+      console.error('Redis canRequestOTP error:', e.message);
+      return { allowed: true, cooldown: 0 }; // fail open
+    }
+  } else {
+    const entry = otpStore.get(key);
+    if (entry) {
+      // Hourly limit
+      if (entry.hourlyResetAt > now && entry.hourlySends >= MAX_SENDS_PER_HOUR) {
+        return { allowed: false, reason: 'Too many OTP requests. Try again in an hour.', cooldown: 0 };
+      }
+      // Cooldown
+      const elapsed = now - entry.lastSentAt;
+      if (elapsed < OTP_COOLDOWN_MS) {
+        const remaining = Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
+        return { allowed: false, reason: `Please wait ${remaining} seconds before requesting another OTP.`, cooldown: remaining };
+      }
+    }
+    return { allowed: true, cooldown: 0 };
+  }
+}
+
+// ─── Get cooldown remaining (seconds) ──────────────────────────
+async function getOTPCooldown(email) {
+  const key = email.toLowerCase();
+  const now = Date.now();
+
+  if (redisClient) {
+    try {
+      const raw = await redisClient.get(otpKey(key));
+      if (raw) {
+        const entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const elapsed = now - entry.lastSentAt;
+        if (elapsed < OTP_COOLDOWN_MS) {
+          return Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
+        }
+      }
+    } catch (e) { /* silent */ }
+  } else {
+    const entry = otpStore.get(key);
+    if (entry) {
+      const elapsed = now - entry.lastSentAt;
+      if (elapsed < OTP_COOLDOWN_MS) {
+        return Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
+      }
+    }
+  }
+  return 0;
+}
+
+// ─── Verify OTP ────────────────────────────────────────────────
+async function verifyOTP(email, otp) {
+  const key = email.toLowerCase();
+  const now = Date.now();
+
+  if (redisClient) {
+    try {
+      const raw = await redisClient.get(otpKey(key));
+      if (!raw) return { valid: false, error: 'No OTP found. Please request a new one.' };
+      
+      const entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+      if (now > entry.expiresAt) {
+        await redisClient.del(otpKey(key));
+        return { valid: false, error: 'OTP has expired. Please request a new one.' };
+      }
+
+      if (entry.attempts >= MAX_ATTEMPTS) {
+        await redisClient.del(otpKey(key));
+        return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
+      }
+
+      if (entry.otp !== otp) {
+        entry.attempts += 1;
+        const remaining = MAX_ATTEMPTS - entry.attempts;
+        const ttl = Math.ceil((entry.expiresAt - now) / 1000);
+        await redisClient.set(otpKey(key), JSON.stringify(entry), { ex: ttl > 0 ? ttl : 1 });
+        return { valid: false, error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
+      }
+
+      // Success — delete OTP
+      await redisClient.del(otpKey(key));
+      return { valid: true };
+    } catch (e) {
+      console.error('Redis verifyOTP error:', e.message);
+      return { valid: false, error: 'Verification service error. Please try again.' };
+    }
+  } else {
+    const entry = otpStore.get(key);
+    if (!entry) return { valid: false, error: 'No OTP found. Please request a new one.' };
+
+    if (now > entry.expiresAt) {
+      otpStore.delete(key);
+      return { valid: false, error: 'OTP has expired. Please request a new one.' };
+    }
+
+    if (entry.attempts >= MAX_ATTEMPTS) {
+      otpStore.delete(key);
+      return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
+    }
+
+    if (entry.otp !== otp) {
+      entry.attempts += 1;
+      const remaining = MAX_ATTEMPTS - entry.attempts;
+      return { valid: false, error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
+    }
+
+    // Success — delete OTP
+    otpStore.delete(key);
+    return { valid: true };
+  }
+}
+
+module.exports = { generateOTP, storeOTP, verifyOTP, canRequestOTP, getOTPCooldown };

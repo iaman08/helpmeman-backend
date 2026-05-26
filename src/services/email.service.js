@@ -67,18 +67,25 @@ function emailVerificationTemplate(user, verificationUrl) {
   `;
 }
 
-function otpEmailTemplate(email, otp) {
+function otpEmailTemplate(email, otp, purpose = 'verify') {
+  const isReset = purpose === 'reset';
+  const heading = isReset ? 'Reset Your Password 🔑' : 'Your Verification Code 🔐';
+  const description = isReset
+    ? 'Use this OTP to reset your password:'
+    : 'Use this OTP to verify your email address:';
+
   return `
     <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e7eb;">
       <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 40px 30px; text-align: center;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 28px;">Your Verification Code 🔐</h1>
+        <h1 style="color: #ffffff; margin: 0; font-size: 28px;">${heading}</h1>
       </div>
       <div style="padding: 30px; text-align: center;">
-        <p style="color: #374151; font-size: 16px; line-height: 1.6;">Use this OTP to verify your institution email:</p>
+        <p style="color: #374151; font-size: 16px; line-height: 1.6;">${description}</p>
         <div style="background: #f3f4f6; border-radius: 12px; padding: 20px; margin: 20px 0; display: inline-block;">
           <span style="font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #6366f1;">${otp}</span>
         </div>
         <p style="color: #6b7280; font-size: 14px;">This code expires in 10 minutes.</p>
+        <p style="color: #9ca3af; font-size: 12px; margin-top: 16px;">If you didn't request this, please ignore this email.</p>
       </div>
     </div>
   `;

@@ -16,10 +16,18 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth attempts, please try again later.' },
 });
 
+const otpLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many OTP requests. Please wait a moment.' },
+});
+
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 20,
   message: { error: 'Upload limit reached, try again later.' },
 });
 
-module.exports = { generalLimiter, authLimiter, uploadLimiter };
+module.exports = { generalLimiter, authLimiter, otpLimiter, uploadLimiter };
