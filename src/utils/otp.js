@@ -84,44 +84,47 @@ async function canRequestOTP(email) {
   const key = email.toLowerCase();
   const now = Date.now();
 
+  let sendCount = 0;
+  let entry = null;
+
   if (redisClient) {
     try {
       // Check hourly limit
-      const sendCount = await redisClient.get(rateKey(key));
-      if (sendCount && parseInt(sendCount) >= MAX_SENDS_PER_HOUR) {
-        return { allowed: false, reason: 'Too many OTP requests. Try again in an hour.', cooldown: 0 };
-      }
+      const count = await redisClient.get(rateKey(key));
+      if (count) sendCount = parseInt(count);
+
       // Check cooldown
       const raw = await redisClient.get(otpKey(key));
       if (raw) {
-        const entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        const elapsed = now - entry.lastSentAt;
-        if (elapsed < OTP_COOLDOWN_MS) {
-          const remaining = Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
-          return { allowed: false, reason: `Please wait ${remaining} seconds before requesting another OTP.`, cooldown: remaining };
-        }
+        entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
       }
-      return { allowed: true, cooldown: 0 };
     } catch (e) {
-      console.error('Redis canRequestOTP error:', e.message);
-      return { allowed: true, cooldown: 0 }; // fail open
+      console.error('Redis canRequestOTP error, falling back to memory check:', e.message);
     }
-  } else {
-    const entry = otpStore.get(key);
-    if (entry) {
-      // Hourly limit
-      if (entry.hourlyResetAt > now && entry.hourlySends >= MAX_SENDS_PER_HOUR) {
-        return { allowed: false, reason: 'Too many OTP requests. Try again in an hour.', cooldown: 0 };
-      }
-      // Cooldown
-      const elapsed = now - entry.lastSentAt;
-      if (elapsed < OTP_COOLDOWN_MS) {
-        const remaining = Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
-        return { allowed: false, reason: `Please wait ${remaining} seconds before requesting another OTP.`, cooldown: remaining };
-      }
-    }
-    return { allowed: true, cooldown: 0 };
   }
+
+  // Fallback and combine checks with memory store
+  const memEntry = otpStore.get(key);
+  if (memEntry) {
+    if (!entry) entry = memEntry;
+    if (memEntry.hourlyResetAt > now) {
+      sendCount = Math.max(sendCount, memEntry.hourlySends || 0);
+    }
+  }
+
+  if (sendCount >= MAX_SENDS_PER_HOUR) {
+    return { allowed: false, reason: 'Too many OTP requests. Try again in an hour.', cooldown: 0 };
+  }
+
+  if (entry) {
+    const elapsed = now - entry.lastSentAt;
+    if (elapsed < OTP_COOLDOWN_MS) {
+      const remaining = Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
+      return { allowed: false, reason: `Please wait ${remaining} seconds before requesting another OTP.`, cooldown: remaining };
+    }
+  }
+
+  return { allowed: true, cooldown: 0 };
 }
 
 // ─── Get cooldown remaining (seconds) ──────────────────────────
@@ -129,24 +132,25 @@ async function getOTPCooldown(email) {
   const key = email.toLowerCase();
   const now = Date.now();
 
+  let entry = null;
+
   if (redisClient) {
     try {
       const raw = await redisClient.get(otpKey(key));
       if (raw) {
-        const entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        const elapsed = now - entry.lastSentAt;
-        if (elapsed < OTP_COOLDOWN_MS) {
-          return Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
-        }
+        entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
       }
     } catch (e) { /* silent */ }
-  } else {
-    const entry = otpStore.get(key);
-    if (entry) {
-      const elapsed = now - entry.lastSentAt;
-      if (elapsed < OTP_COOLDOWN_MS) {
-        return Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
-      }
+  }
+
+  if (!entry) {
+    entry = otpStore.get(key);
+  }
+
+  if (entry) {
+    const elapsed = now - entry.lastSentAt;
+    if (elapsed < OTP_COOLDOWN_MS) {
+      return Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
     }
   }
   return 0;
@@ -157,62 +161,68 @@ async function verifyOTP(email, otp) {
   const key = email.toLowerCase();
   const now = Date.now();
 
+  let entry = null;
+
   if (redisClient) {
     try {
       const raw = await redisClient.get(otpKey(key));
-      if (!raw) return { valid: false, error: 'No OTP found. Please request a new one.' };
-      
-      const entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
-
-      if (now > entry.expiresAt) {
-        await redisClient.del(otpKey(key));
-        return { valid: false, error: 'OTP has expired. Please request a new one.' };
+      if (raw) {
+        entry = typeof raw === 'string' ? JSON.parse(raw) : raw;
       }
+    } catch (e) {
+      console.error('Redis verifyOTP error, falling back to memory check:', e.message);
+    }
+  }
 
-      if (entry.attempts >= MAX_ATTEMPTS) {
-        await redisClient.del(otpKey(key));
-        return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
-      }
+  // If not found in Redis, check local in-memory backup
+  if (!entry) {
+    entry = otpStore.get(key);
+  }
 
-      if (entry.otp !== otp) {
-        entry.attempts += 1;
-        const remaining = MAX_ATTEMPTS - entry.attempts;
+  if (!entry) {
+    return { valid: false, error: 'No OTP found. Please request a new one.' };
+  }
+
+  if (now > entry.expiresAt) {
+    if (redisClient) {
+      try { await redisClient.del(otpKey(key)); } catch (e) {}
+    }
+    otpStore.delete(key);
+    return { valid: false, error: 'OTP has expired. Please request a new one.' };
+  }
+
+  if (entry.attempts >= MAX_ATTEMPTS) {
+    if (redisClient) {
+      try { await redisClient.del(otpKey(key)); } catch (e) {}
+    }
+    otpStore.delete(key);
+    return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
+  }
+
+  if (entry.otp !== otp) {
+    entry.attempts += 1;
+    const remaining = MAX_ATTEMPTS - entry.attempts;
+    
+    // Update attempts in both locations
+    if (redisClient) {
+      try {
         const ttl = Math.ceil((entry.expiresAt - now) / 1000);
         await redisClient.set(otpKey(key), JSON.stringify(entry), { ex: ttl > 0 ? ttl : 1 });
-        return { valid: false, error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
+      } catch (e) {
+        otpStore.set(key, entry);
       }
-
-      // Success — delete OTP
-      await redisClient.del(otpKey(key));
-      return { valid: true };
-    } catch (e) {
-      console.error('Redis verifyOTP error:', e.message);
-      return { valid: false, error: 'Verification service error. Please try again.' };
+    } else {
+      otpStore.set(key, entry);
     }
-  } else {
-    const entry = otpStore.get(key);
-    if (!entry) return { valid: false, error: 'No OTP found. Please request a new one.' };
-
-    if (now > entry.expiresAt) {
-      otpStore.delete(key);
-      return { valid: false, error: 'OTP has expired. Please request a new one.' };
-    }
-
-    if (entry.attempts >= MAX_ATTEMPTS) {
-      otpStore.delete(key);
-      return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
-    }
-
-    if (entry.otp !== otp) {
-      entry.attempts += 1;
-      const remaining = MAX_ATTEMPTS - entry.attempts;
-      return { valid: false, error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
-    }
-
-    // Success — delete OTP
-    otpStore.delete(key);
-    return { valid: true };
+    return { valid: false, error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
   }
+
+  // Success — delete OTP from both locations
+  if (redisClient) {
+    try { await redisClient.del(otpKey(key)); } catch (e) {}
+  }
+  otpStore.delete(key);
+  return { valid: true };
 }
 
 module.exports = { generateOTP, storeOTP, verifyOTP, canRequestOTP, getOTPCooldown };
