@@ -20,6 +20,7 @@ const chatRoutes = require('./routes/chat.routes');
 const adminRoutes = require('./routes/admin.routes');
 const categoryRoutes = require('./routes/category.routes');
 const aiRoutes = require('./routes/ai.routes');
+const publicAiRoutes = require('./routes/publicAi.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -76,6 +77,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/public/ai', publicAiRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
