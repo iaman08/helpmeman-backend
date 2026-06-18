@@ -26,6 +26,59 @@ model User {
   mentor          Mentor?
   aiSessions      AiSession[]
   userMemory      UserMemory?
+  onboardingRole String?
+  mentorOnboardingAnswers MentorOnboardingAnswer[]
+  mentorProfile   MentorProfile?
+  mentorMemories  MentorMemory[]
+}
+
+model MentorOnboardingAnswer {
+  id        String   @id @default(cuid())
+  mentorId  String
+  mentor    User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  question  String   @db.Text
+  answer    String   @db.Text
+  questionKey String
+  skipped   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([mentorId, createdAt])
+}
+
+model MentorProfile {
+  id                 String   @id @default(cuid())
+  mentorId           String   @unique
+  mentor             User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  name               String?
+  preferredName      String?
+  role               String?
+  company            String?
+  location           String?
+  skills             String[]
+  expertiseTags      String[]
+  experienceYears    Int?
+  bio                String?  @db.Text
+  mentoringStyle     Json?
+  personality        Json?
+  goals              String?  @db.Text
+  summary            String?  @db.Text
+  onboardingStatus   String   @default("NOT_STARTED")
+  currentQuestion    Int      @default(0)
+  completedAt        DateTime?
+  updatedAt          DateTime @updatedAt
+}
+
+model MentorMemory {
+  id        String   @id @default(cuid())
+  mentorId  String
+  mentor    User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  source    String   @default("onboarding")
+  content   String   @db.Text
+  metadata  Json?
+  embedding Json?    // provider-neutral vector; can be migrated to pgvector later
+  createdAt DateTime @default(now())
+
+  @@index([mentorId, createdAt])
 }
 
 model Mentor {
