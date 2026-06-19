@@ -1,5 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
-const { createNotification } = require('./notification.service');
+const { sendNotification } = require('./notification.service');
 const prisma = new PrismaClient();
 
 async function startOrGetThread(userId, mentorId) {
@@ -12,8 +12,9 @@ async function startOrGetThread(userId, mentorId) {
       data: { userId, mentorId },
       include: { messages: true },
     });
-    await createNotification({
-      mentorId, type: 'NEW_CHAT_THREAD',
+    await sendNotification({
+      mentorId,
+      type: 'NEW_CHAT_THREAD',
       title: 'Someone wants to chat',
       body: 'A student has started a conversation with you.',
     });
@@ -45,9 +46,19 @@ async function sendMessage(threadId, senderId, senderRole, body) {
     }),
   ]);
   if (isUser) {
-    await createNotification({ mentorId: thread.mentorId, type: 'CHAT_MESSAGE', title: 'New message', body: body.substring(0, 80) });
+    await sendNotification({
+      mentorId: thread.mentorId,
+      type: 'CHAT_MESSAGE',
+      title: 'New message received',
+      body: body.substring(0, 120),
+    });
   } else {
-    await createNotification({ userId: thread.userId, type: 'CHAT_REPLY', title: 'Your mentor replied', body: body.substring(0, 80) });
+    await sendNotification({
+      userId: thread.userId,
+      type: 'CHAT_REPLY',
+      title: 'Your mentor replied',
+      body: body.substring(0, 120),
+    });
   }
   return { message, thread: updatedThread };
 }

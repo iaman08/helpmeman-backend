@@ -20,7 +20,13 @@ router.get('/me/bookings/:id', user.getBookingDetail);
 router.post('/me/bookings/:id/cancel', user.cancelBooking);
 router.post('/me/bookings/:id/review', user.submitReview);
 router.get('/me/notifications', user.getNotifications);
-router.put('/me/notifications/:id/read', user.markNotificationRead);
+router.get('/me/notifications/analytics', user.getUserNotificationAnalytics);
 router.put('/me/notifications/read-all', user.markAllNotificationsRead);
+router.put('/me/notifications/:id/read', user.markNotificationRead);
+router.delete('/me/notifications/:id', user.deleteUserNotification);
+router.get('/me/notification-preferences', user.getNotificationPrefs);
+router.put('/me/notification-preferences', user.updateNotificationPrefs);
+router.post('/me/devices', user.registerUserDevice);
+router.delete('/me/devices', user.removeUserDevice);
 
 module.exports = router;

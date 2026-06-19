@@ -16,6 +16,10 @@ module.exports = {
     pass: process.env.SMTP_PASS,
     fromEmail: process.env.FROM_EMAIL || 'noreply@helpmeman.com',
   },
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || process.env.SMTP_PASS,
+    fromEmail: process.env.FROM_EMAIL || 'onboarding@resend.dev',
+  },
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,

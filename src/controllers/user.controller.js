@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { hashPassword, comparePassword } = require('../utils/hash');
 const { uploadImage } = require('../services/upload.service');
-const { getUserNotifications, markAsRead, markAllReadForUser } = require('../services/notification.service');
+const { getUserNotifications, markAsRead, markAllReadForUser, deleteNotification, getNotificationAnalytics, registerDevice, removeDevice, updatePreferences, getPreferences } = require('../services/notification.service');
 const { saveUserToFirestore, getUserFromFirestore, isUsernameAvailable, setUsername } = require('../services/firestore.service');
 const prisma = new PrismaClient();
 
@@ -150,8 +150,71 @@ async function getNotifications(req, res) {
 }
 
 async function markNotificationRead(req, res) {
-  try { await markAsRead(req.params.id); res.json({ message: 'Marked as read' }); }
+  try {
+    const updated = await markAsRead(req.params.id, req.user.id);
+    if (!updated) return res.status(404).json({ error: 'Notification not found' });
+    res.json({ message: 'Marked as read', notification: updated });
+  }
   catch (e) { res.status(500).json({ error: 'Failed' }); }
+}
+
+async function deleteUserNotification(req, res) {
+  try {
+    const deleted = await deleteNotification(req.params.id, req.user.id);
+    if (!deleted) return res.status(404).json({ error: 'Notification not found' });
+    res.json({ message: 'Notification deleted' });
+  } catch (e) { res.status(500).json({ error: 'Failed to delete notification' }); }
+}
+
+async function getNotificationPrefs(req, res) {
+  try {
+    const preferences = await getPreferences(req.user.id);
+    res.json({ preferences });
+  } catch (e) { res.status(500).json({ error: 'Failed to load preferences' }); }
+}
+
+async function updateNotificationPrefs(req, res) {
+  try {
+    const allowed = [
+      'emailNotifications',
+      'pushNotifications',
+      'marketingEmails',
+      'accountUpdates',
+      'messages',
+      'mentorUpdates',
+    ];
+    const data = {};
+    for (const key of allowed) {
+      if (typeof req.body[key] === 'boolean') data[key] = req.body[key];
+    }
+    const preferences = await updatePreferences(req.user.id, data);
+    res.json({ preferences });
+  } catch (e) { res.status(500).json({ error: 'Failed to update preferences' }); }
+}
+
+async function registerUserDevice(req, res) {
+  try {
+    const { fcmToken, deviceType = 'web' } = req.body;
+    if (!fcmToken) return res.status(400).json({ error: 'FCM token required' });
+    const device = await registerDevice(req.user.id, fcmToken, deviceType);
+    res.json({ device });
+  } catch (e) { res.status(500).json({ error: 'Failed to register device' }); }
+}
+
+async function removeUserDevice(req, res) {
+  try {
+    const { fcmToken } = req.body;
+    if (!fcmToken) return res.status(400).json({ error: 'FCM token required' });
+    await removeDevice(req.user.id, fcmToken);
+    res.json({ message: 'Device removed' });
+  } catch (e) { res.status(500).json({ error: 'Failed to remove device' }); }
+}
+
+async function getUserNotificationAnalytics(req, res) {
+  try {
+    const analytics = await getNotificationAnalytics(req.user.id);
+    res.json({ analytics });
+  } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
 }
 
 async function markAllNotificationsRead(req, res) {
@@ -181,4 +244,23 @@ async function updateUsername(req, res) {
   } catch (e) { res.status(500).json({ error: 'Username update failed' }); }
 }
 
-module.exports = { getProfile, updateProfile, changePassword, getBookings, getBookingDetail, cancelBooking, submitReview, getNotifications, markNotificationRead, markAllNotificationsRead, checkUsername, updateUsername };
+module.exports = {
+  getProfile,
+  updateProfile,
+  changePassword,
+  getBookings,
+  getBookingDetail,
+  cancelBooking,
+  submitReview,
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteUserNotification,
+  getNotificationPrefs,
+  updateNotificationPrefs,
+  registerUserDevice,
+  removeUserDevice,
+  getUserNotificationAnalytics,
+  checkUsername,
+  updateUsername,
+};

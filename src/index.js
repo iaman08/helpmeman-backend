@@ -8,6 +8,8 @@ const config = require('./config/env');
 const { generalLimiter } = require('./middleware/rateLimiter');
 const { setupChatSocket } = require('./sockets/chat.socket');
 const { initReminderQueue } = require('./jobs/sessionReminder.job');
+const { initNotificationQueue } = require('./services/notificationQueue.service');
+const { retryFailedEmails } = require('./services/email.service');
 
 // Routes
 const authRoutes = require('./routes/auth.routes');
@@ -100,6 +102,10 @@ server.listen(PORT, () => {
   // Initialize job queue (skipped in development to avoid Upstash limit-reached console floods)
   if (config.nodeEnv === 'production') {
     try { initReminderQueue(config.redis.url); } catch (e) { console.warn('Redis queue init skipped'); }
+    try { initNotificationQueue(config.redis.url); } catch (e) { console.warn('Notification queue init skipped'); }
+    setInterval(() => {
+      retryFailedEmails(20).catch((err) => console.warn('Email retry job failed:', err.message));
+    }, 15 * 60 * 1000);
   } else {
     console.log('Skipping Redis reminder queue in development');
   }

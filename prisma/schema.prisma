@@ -30,6 +30,10 @@ model User {
   mentorOnboardingAnswers MentorOnboardingAnswer[]
   mentorProfile   MentorProfile?
   mentorMemories  MentorMemory[]
+  notificationPreferences UserNotificationPreference?
+  devices         UserDevice[]
+  otpCodes        OtpCode[]
+  emailDeliveries EmailDeliveryLog[]
 }
 
 model MentorOnboardingAnswer {
@@ -194,7 +198,72 @@ model Notification {
   title     String
   body      String
   isRead    Boolean  @default(false)
+  emailSent Boolean  @default(false)
+  pushSent  Boolean  @default(false)
+  metadata  Json?
   createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@index([mentorId, isRead, createdAt])
+  @@index([type, createdAt])
+}
+
+model UserNotificationPreference {
+  userId              String  @id
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailNotifications  Boolean @default(true)
+  pushNotifications   Boolean @default(true)
+  marketingEmails     Boolean @default(false)
+  accountUpdates      Boolean @default(true)
+  messages            Boolean @default(true)
+  mentorUpdates       Boolean @default(true)
+  updatedAt           DateTime @updatedAt
+}
+
+model UserDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fcmToken   String   @unique
+  deviceType String   @default("web")
+  lastActive DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId, lastActive])
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  email     String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  purpose   String   @default("verify")
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  lastSentAt DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([email, purpose])
+}
+
+model EmailDeliveryLog {
+  id             String   @id @default(cuid())
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  toEmail        String
+  subject        String
+  templateType   String
+  status         String   @default("pending")
+  resendId       String?
+  errorMessage   String?
+  notificationId String?
+  retryCount     Int      @default(0)
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Earning {

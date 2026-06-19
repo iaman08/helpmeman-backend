@@ -3,8 +3,8 @@ const { hashPassword, comparePassword } = require('../utils/hash');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken, generateEmailToken, verifyEmailToken } = require('../utils/jwt');
 const { generateOTP, storeOTP, verifyOTP, canRequestOTP, getOTPCooldown } = require('../utils/otp');
 const { isValidCollegeEmail, isValidCompanyEmail, isValidStartupEmail } = require('../utils/emailDomains');
-const { sendEmail, welcomeEmailTemplate, emailVerificationTemplate, otpEmailTemplate, passwordResetTemplate } = require('../services/email.service');
-const { createNotification } = require('../services/notification.service');
+const { sendEmail, sendOtpEmail, sendWelcomeEmail, sendVerifyEmail, sendPasswordResetEmail } = require('../services/email.service');
+const { sendNotification } = require('../services/notification.service');
 const { saveUserToFirestore, saveMentorToFirestore, getUserFromFirestore } = require('../services/firestore.service');
 const config = require('../config/env');
 const crypto = require('crypto');
@@ -41,11 +41,7 @@ async function register(req, res) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`\n📧 [DEV] Signup OTP for ${email}: ${otp}\n`);
     }
-    await sendEmail({
-      to: email.toLowerCase(),
-      subject: 'Verify your email — HelpMeMan',
-      html: otpEmailTemplate(email, otp, 'verify'),
-    });
+    await sendOtpEmail({ email: email.toLowerCase(), name, otp, purpose: 'verify' });
 
     res.json({ message: 'OTP sent to your email', email: email.toLowerCase(), requiresOTP: true });
   } catch (error) {
@@ -119,12 +115,20 @@ async function verifySignupOTP(req, res) {
     // Sync user to Firestore
     try { await saveUserToFirestore(user); } catch (e) { console.warn('Firestore sync failed (register):', e.message); }
 
+    try {
+      const { getOrCreatePreferences } = require('../services/notification.service');
+      await getOrCreatePreferences(user.id);
+    } catch (e) { console.warn('Notification prefs init failed:', e.message); }
+
     // Send welcome email
     try {
-      await sendEmail({
-        to: user.email,
-        subject: 'Welcome to HelpMeMan! 🎉',
-        html: welcomeEmailTemplate(user),
+      await sendWelcomeEmail(user);
+      await sendNotification({
+        userId: user.id,
+        type: 'ACCOUNT_UPDATE',
+        title: 'Welcome to HelpMeMan',
+        body: 'Your account is ready. Complete onboarding to personalize your experience.',
+        sendEmail: false,
       });
     } catch (e) { console.warn('Welcome email failed:', e.message); }
 
@@ -174,7 +178,7 @@ async function registerMentor(req, res) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`\n🔑 [DEV] OTP for ${institutionEmail}: ${otp}\n`);
     }
-    await sendEmail({ to: institutionEmail, subject: 'HelpMeMan — Verify your institution email', html: otpEmailTemplate(institutionEmail, otp) });
+    await sendOtpEmail({ email: institutionEmail, otp, purpose: 'verify' });
 
     // Store pending registration data in session/temp (simplified: store in response for client to send back)
     res.json({ message: 'OTP sent to institution email', institutionEmail, requiresOTP: true });
@@ -371,11 +375,7 @@ async function forgotPassword(req, res) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`\n🔑 [DEV] Password reset OTP for ${email}: ${otp}\n`);
     }
-    await sendEmail({
-      to: user.email,
-      subject: 'Reset your password — HelpMeMan',
-      html: otpEmailTemplate(email, otp, 'reset'),
-    });
+    await sendOtpEmail({ email: user.email, name: user.name, otp, purpose: 'reset' });
 
     res.json({ message: 'If account exists, OTP sent to email' });
   } catch (error) {
@@ -483,12 +483,7 @@ async function resendOTP(req, res) {
     }
 
     const emailPurpose = purpose === 'reset' ? 'reset' : 'verify';
-    const subject = purpose === 'reset' ? 'Reset your password — HelpMeMan' : 'Verify your email — HelpMeMan';
-    await sendEmail({
-      to: email.toLowerCase(),
-      subject,
-      html: otpEmailTemplate(email, otp, emailPurpose),
-    });
+    await sendOtpEmail({ email: email.toLowerCase(), otp, purpose: emailPurpose });
 
     const cooldown = await getOTPCooldown(email);
     res.json({ message: 'OTP resent', cooldown: cooldown || 60 });

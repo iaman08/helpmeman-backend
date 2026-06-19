@@ -1,8 +1,9 @@
 const crypto = require('crypto');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // ─── OTP Store ─────────────────────────────────────────────────
-// Uses Upstash Redis in production, in-memory Map for development.
-// Each entry stores: { otp, expiresAt, attempts, lastSentAt, sentCount }
+// Uses Upstash Redis in production, hashed DB backup, in-memory Map for dev.
 
 let redisClient = null;
 
@@ -42,11 +43,64 @@ function generateOTP(length = 6) {
 }
 
 // ─── Redis key helpers ─────────────────────────────────────────
+function hashOTP(otp) {
+  return crypto.createHash('sha256').update(String(otp)).digest('hex');
+}
+
 function otpKey(email) { return `otp:${email.toLowerCase()}`; }
 function rateKey(email) { return `otp_rate:${email.toLowerCase()}`; }
 
+async function persistHashedOtp(email, otp, purpose = 'verify') {
+  const normalized = email.toLowerCase();
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
+  await prisma.otpCode.deleteMany({ where: { email: normalized, purpose } });
+  await prisma.otpCode.create({
+    data: {
+      email: normalized,
+      codeHash: hashOTP(otp),
+      purpose,
+      expiresAt,
+      lastSentAt: new Date(),
+    },
+  });
+}
+
+async function verifyHashedOtp(email, otp, purpose = 'verify') {
+  const normalized = email.toLowerCase();
+  const record = await prisma.otpCode.findFirst({
+    where: { email: normalized, purpose },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!record) return null;
+
+  if (Date.now() > record.expiresAt.getTime()) {
+    await prisma.otpCode.delete({ where: { id: record.id } });
+    return { valid: false, error: 'OTP has expired. Please request a new one.' };
+  }
+
+  if (record.attempts >= MAX_ATTEMPTS) {
+    await prisma.otpCode.delete({ where: { id: record.id } });
+    return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
+  }
+
+  if (record.codeHash !== hashOTP(otp)) {
+    await prisma.otpCode.update({
+      where: { id: record.id },
+      data: { attempts: { increment: 1 } },
+    });
+    const remaining = MAX_ATTEMPTS - (record.attempts + 1);
+    return {
+      valid: false,
+      error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
+    };
+  }
+
+  await prisma.otpCode.delete({ where: { id: record.id } });
+  return { valid: true };
+}
+
 // ─── Store OTP ─────────────────────────────────────────────────
-async function storeOTP(email, otp) {
+async function storeOTP(email, otp, purpose = 'verify') {
   const key = email.toLowerCase();
   const now = Date.now();
   const entry = {
@@ -54,7 +108,14 @@ async function storeOTP(email, otp) {
     expiresAt: now + OTP_EXPIRY_MS,
     attempts: 0,
     lastSentAt: now,
+    purpose,
   };
+
+  try {
+    await persistHashedOtp(key, otp, purpose);
+  } catch (error) {
+    console.error('Hashed OTP DB store error:', error.message);
+  }
 
   if (redisClient) {
     try {
@@ -180,6 +241,8 @@ async function verifyOTP(email, otp) {
   }
 
   if (!entry) {
+    const dbResult = await verifyHashedOtp(key, otp);
+    if (dbResult) return dbResult;
     return { valid: false, error: 'No OTP found. Please request a new one.' };
   }
 
@@ -217,11 +280,12 @@ async function verifyOTP(email, otp) {
     return { valid: false, error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
   }
 
-  // Success — delete OTP from both locations
+  // Success — delete OTP from all locations
   if (redisClient) {
     try { await redisClient.del(otpKey(key)); } catch (e) {}
   }
   otpStore.delete(key);
+  await prisma.otpCode.deleteMany({ where: { email: key } }).catch(() => {});
   return { valid: true };
 }
 

@@ -1,8 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { createOrder, verifyPaymentSignature } = require('../services/payment.service');
 const { createMeetingEvent } = require('../services/googleMeet.service');
-const { sendEmail, bookingConfirmedTemplate } = require('../services/email.service');
-const { createNotification } = require('../services/notification.service');
+const { sendNotification } = require('../services/notification.service');
 const config = require('../config/env');
 const prisma = new PrismaClient();
 
@@ -46,12 +45,18 @@ async function verifyPayment(req, res) {
     // Link chat thread if exists
     await prisma.chatThread.updateMany({ where: { userId: booking.userId, mentorId: booking.mentorId }, data: { bookingId: booking.id, status: 'BOOKED' } });
 
-    // Notifications
-    await createNotification({ userId: booking.userId, type: 'BOOKING_CONFIRMED', title: 'Session confirmed!', body: `Your session is confirmed. Meet link is ready.` });
-    await createNotification({ mentorId: booking.mentorId, type: 'NEW_BOOKING', title: 'New session booked', body: `New session booked.` });
-
-    // Emails
-    await sendEmail({ to: fullBooking.user.email, subject: 'Session Confirmed — HelpMeMan', html: bookingConfirmedTemplate(fullBooking.user, fullBooking.mentor, confirmed) });
+    await sendNotification({
+      userId: booking.userId,
+      type: 'BOOKING_CONFIRMED',
+      title: 'Session confirmed!',
+      body: 'Your session is confirmed. Your meet link is ready.',
+    });
+    await sendNotification({
+      mentorId: booking.mentorId,
+      type: 'NEW_BOOKING',
+      title: 'New booking received',
+      body: 'A student booked a session with you.',
+    });
 
     res.json({ booking: confirmed });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Payment verification failed' }); }
@@ -101,11 +106,10 @@ async function rescheduleBooking(req, res) {
       await updateMeetingEvent(booking.googleEventId, scheduledAt, booking.durationMinutes);
     }
 
-    // Notifications
-    const { createNotification } = require('../services/notification.service');
+    const { sendNotification } = require('../services/notification.service');
     const msg = `Session rescheduled to ${new Date(scheduledAt).toLocaleString()}`;
-    await createNotification({ userId: booking.userId, type: 'BOOKING_RESCHEDULED', title: 'Session Rescheduled', body: msg });
-    await createNotification({ mentorId: booking.mentorId, type: 'BOOKING_RESCHEDULED', title: 'Session Rescheduled', body: msg });
+    await sendNotification({ userId: booking.userId, type: 'BOOKING_RESCHEDULED', title: 'Session rescheduled', body: msg });
+    await sendNotification({ mentorId: booking.mentorId, type: 'BOOKING_RESCHEDULED', title: 'Session rescheduled', body: msg });
 
     res.json({ booking: updated });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to reschedule' }); }

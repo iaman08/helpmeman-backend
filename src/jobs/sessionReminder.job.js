@@ -12,8 +12,8 @@ try {
 }
 
 const { PrismaClient } = require('@prisma/client');
-const { sendEmail, sessionReminderTemplate } = require('../services/email.service');
-const { createNotification } = require('../services/notification.service');
+const { sendNotification } = require('../services/notification.service');
+const { sendNotificationEmail } = require('../services/email.service');
 
 const prisma = new PrismaClient();
 
@@ -45,10 +45,32 @@ function initReminderQueue(redisUrl) {
           include: { user: true, mentor: { include: { user: true } } },
         });
         if (booking?.status === 'CONFIRMED') {
-          await sendEmail({ to: booking.user.email, subject: 'Session in 1 hour — HelpMeMan', html: sessionReminderTemplate(booking.user, booking) });
-          await sendEmail({ to: booking.mentor.user.email, subject: 'Session in 1 hour — HelpMeMan', html: sessionReminderTemplate(booking.mentor.user, booking) });
-          await createNotification({ userId: booking.userId, type: 'SESSION_REMINDER', title: 'Session in 1 hour', body: 'Your session starts soon!' });
-          await createNotification({ mentorId: booking.mentorId, type: 'SESSION_REMINDER', title: 'Session in 1 hour', body: 'Your session starts soon!' });
+          await sendNotificationEmail({
+            user: booking.user,
+            title: 'Session in 1 hour',
+            body: 'Your mentorship session starts in one hour.',
+            type: 'SESSION_REMINDER',
+          });
+          await sendNotificationEmail({
+            user: booking.mentor.user,
+            title: 'Session in 1 hour',
+            body: 'Your mentorship session starts in one hour.',
+            type: 'SESSION_REMINDER',
+          });
+          await sendNotification({
+            userId: booking.userId,
+            type: 'SESSION_REMINDER',
+            title: 'Session in 1 hour',
+            body: 'Your session starts soon!',
+            sendEmail: false,
+          });
+          await sendNotification({
+            mentorId: booking.mentorId,
+            type: 'SESSION_REMINDER',
+            title: 'Session in 1 hour',
+            body: 'Your session starts soon!',
+            sendEmail: false,
+          });
         }
       }, { connection });
 
