@@ -1,4 +1,3 @@
-const { Resend } = require('resend');
 const nodemailer = require('nodemailer');
 const { PrismaClient } = require('@prisma/client');
 const config = require('../config/env');
@@ -13,9 +12,6 @@ const {
 } = require('../emails/transactionalEmails');
 
 const prisma = new PrismaClient();
-
-const resendClient = config.resend.apiKey ? new Resend(config.resend.apiKey) : null;
-
 const smtpTransporter =
   config.smtp.host && config.smtp.user && config.smtp.pass
     ? nodemailer.createTransport({
@@ -32,7 +28,7 @@ async function logEmailDelivery({
   subject,
   templateType,
   status,
-  resendId,
+  providerId,
   errorMessage,
   notificationId,
   retryCount = 0,
@@ -45,7 +41,7 @@ async function logEmailDelivery({
         subject,
         templateType,
         status,
-        resendId,
+        providerId,
         errorMessage,
         notificationId,
         retryCount,
@@ -58,43 +54,8 @@ async function logEmailDelivery({
   }
 }
 
-async function sendEmail({ to, subject, html, text, userId, templateType = 'generic', notificationId }) {
+async function sendEmail({ to, subject, html, text, userId, templateType = 'generic', notificationId , }) {
   const plainText = text || html.replace(/<[^>]*>/g, '');
-
-  if (resendClient) {
-    try {
-      const result = await resendClient.emails.send({
-        from: config.resend.fromEmail,
-        to,
-        subject,
-        html,
-        text: plainText,
-      });
-
-      await logEmailDelivery({
-        userId,
-        toEmail: to,
-        subject,
-        templateType,
-        status: 'sent',
-        resendId: result.data?.id || null,
-        notificationId,
-      });
-
-      return { success: true, provider: 'resend', id: result.data?.id };
-    } catch (error) {
-      console.error('Resend send error:', error.message);
-      await logEmailDelivery({
-        userId,
-        toEmail: to,
-        subject,
-        templateType,
-        status: 'failed',
-        errorMessage: error.message,
-        notificationId,
-      });
-    }
-  }
 
   if (smtpTransporter) {
     try {
@@ -112,13 +73,13 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
         subject,
         templateType,
         status: 'sent',
-        resendId: info.messageId,
+        providerId: info.messageId,
         notificationId,
       });
 
-      return { success: true, provider: 'smtp', id: info.messageId };
+      return { success: true, provider: 'brevo-smtp', id: info.messageId };
     } catch (error) {
-      console.error('SMTP send error:', error.message);
+      console.error('Brevo SMTP send error:', error.message);
       await logEmailDelivery({
         userId,
         toEmail: to,
@@ -131,7 +92,7 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
     }
   }
 
-  console.warn('No email provider configured — email not sent to', to);
+  console.warn('No email provider configured - email not sent to', to);
   return { success: false, provider: null };
 }
 

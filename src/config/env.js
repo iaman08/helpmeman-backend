@@ -10,15 +10,15 @@ module.exports = {
     url: process.env.DATABASE_URL,
   },
   smtp: {
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT, 10) || 587,
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-    fromEmail: process.env.FROM_EMAIL || 'noreply@helpmeman.com',
+    host: process.env.SMTP_HOST || process.env.BREVO_SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || process.env.BREVO_SMTP_PORT, 10) || 587,
+    user: process.env.SMTP_USER || process.env.BREVO_SMTP_USER,
+    pass: process.env.SMTP_PASS || process.env.BREVO_SMTP_PASS,
+    fromEmail: process.env.FROM_EMAIL || process.env.BREVO_FROM_EMAIL || 'noreply@helpmeman.com',
   },
-  resend: {
-    apiKey: process.env.RESEND_API_KEY || process.env.SMTP_PASS,
-    fromEmail: process.env.FROM_EMAIL || 'onboarding@resend.dev',
+  brevo: {
+    apiKey: process.env.BREVO_API_KEY,
+    fromEmail: process.env.BREVO_FROM_EMAIL || process.env.FROM_EMAIL || 'noreply@helpmeman.com',
   },
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID,

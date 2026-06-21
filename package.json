@@ -12,7 +12,8 @@
     "db:push": "npx prisma db push",
     "db:migrate": "npx prisma migrate dev",
     "db:seed": "node prisma/seed.js",
-    "db:studio": "npx prisma studio"
+    "db:studio": "npx prisma studio",
+    "test-smtp": "node src/test-smtp.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
