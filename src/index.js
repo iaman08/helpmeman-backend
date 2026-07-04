@@ -28,28 +28,37 @@ const onboardingRoutes = require('./routes/onboarding.routes');
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = [config.frontendUrl];
+const allowedOrigins = [config.frontendUrl].filter(Boolean);
 const corsOriginCheck = (origin, callback) => {
+  // No origin = server-to-server / curl / mobile — allow
   if (!origin) return callback(null, true);
-  const isLocalDev = config.nodeEnv === 'development' && (
-    origin.startsWith('http://localhost:') || 
-    origin.startsWith('http://127.0.0.1:') || 
-    origin.startsWith('http://192.168.')
-  );
-  const isVercelOrigin = origin.endsWith('.vercel.app') || origin === 'https://helpmeman-frontend.vercel.app';
-  const isCustomDomain = 
-    origin === 'https://helpmeman.com' || 
-    origin === 'https://www.helpmeman.com' || 
-    origin.endsWith('.helpmeman.com') ||
-    origin.replace(/\/$/, '') === 'https://helpmeman.com' ||
-    origin.replace(/\/$/, '') === 'https://www.helpmeman.com';
-  
-  if (allowedOrigins.includes(origin) || isLocalDev || isVercelOrigin || isCustomDomain) {
+
+  const isLocalDev =
+    origin.startsWith('http://localhost:') ||
+    origin.startsWith('http://127.0.0.1:') ||
+    origin.startsWith('http://192.168.') ||
+    origin.startsWith('http://10.');
+
+  const isVercelOrigin =
+    origin.endsWith('.vercel.app') ||
+    origin === 'https://helpmeman-frontend.vercel.app';
+
+  const isCustomDomain =
+    origin === 'https://helpmeman.com' ||
+    origin === 'https://www.helpmeman.com' ||
+    origin.endsWith('.helpmeman.com');
+
+  const isAllowedOrigin = allowedOrigins.includes(origin);
+
+  if (isAllowedOrigin || isLocalDev || isVercelOrigin || isCustomDomain) {
     callback(null, true);
   } else {
-    callback(new Error('Not allowed by CORS'));
+    // Silently reject — do NOT pass an Error to avoid unhandled exception noise
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    callback(null, false);
   }
 };
+
 
 // Socket.io
 const io = new Server(server, {

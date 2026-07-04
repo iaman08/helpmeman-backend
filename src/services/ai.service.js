@@ -150,6 +150,145 @@ async function getPlatformContext() {
   return { categories, mentorCount, topMentors };
 }
 
+// ─── Mentor Intent Detection ──────────────────────────────────────────────────
+
+const MENTOR_INTENT_KEYWORDS = [
+  // Discovery / find
+  'find mentor', 'find a mentor', 'find me a mentor', 'find mentors',
+  'recommend mentor', 'suggest mentor', 'show mentor', 'show me mentor',
+  'list mentor', 'get mentor', 'search mentor', 'browse mentor',
+  'any mentor', 'need a mentor', 'looking for mentor', 'i need mentor',
+  'who can help', 'who can teach', 'can you suggest', 'can you recommend',
+  // Follow-up / more
+  'show more', 'more mentor', 'other mentor', 'another mentor',
+  'any other', 'anyone else', 'more options', 'other options',
+  'suggest more', 'recommend someone', 'someone else', 'find more',
+  'show top mentor', 'show available', 'show best', 'see more',
+  'more results', 'other choices', 'different mentor', 'next mentor',
+  // Price-based
+  'cheaper mentor', 'affordable mentor', 'cheap mentor', 'low cost',
+  'budget mentor', 'under ₹', 'under rs', 'below ₹', 'less than',
+  'best value', 'cost effective', 'economical', 'inexpensive',
+  // Skill/domain-based
+  'dsa mentor', 'ai mentor', 'ml mentor', 'neet mentor', 'jee mentor',
+  'startup mentor', 'product manager', 'pm mentor', 'coding mentor',
+  'math mentor', 'physics mentor', 'interview mentor', 'resume mentor',
+  'career mentor', 'web dev mentor', 'app dev mentor', 'design mentor',
+  'data science mentor', 'blockchain mentor', 'cloud mentor', 'devops mentor',
+  'mock interview', 'resume review', 'interview prep', 'career guidance',
+  'career help', 'career advice', 'career coach',
+  // Company/college filter
+  'iit mentor', 'aiims mentor', 'google mentor', 'meta mentor',
+  'amazon mentor', 'microsoft mentor', 'faang mentor', 'bits mentor',
+  'nit mentor', 'top mentor', 'best mentor',
+  // Booking intent (also handled separately but flag for mentor search)
+  'book mentor', 'book a mentor', 'book session', 'book him', 'book her',
+  'book this', 'book that', 'schedule mentor', 'reserve mentor',
+  'meet mentor', 'connect with mentor',
+  // Profile intent
+  'mentor profile', 'tell me about', 'more about', 'who is this',
+  'view profile', 'open profile', 'show profile',
+];
+
+// Booking intent patterns (client-side, resolved against context)
+const BOOKING_INTENT_REGEX = /(book|schedule|reserve|meet|session with|i want this|continue booking|i'll take|go with|pick|choose|select)/i;
+const ORDINAL_REGEX = {
+  1: /(first|1st|number one|top one|#1|one)/i,
+  2: /(second|2nd|number two|#2|two)/i,
+  3: /(third|3rd|number three|#3|three)/i,
+  4: /(fourth|4th|number four|#4|four)/i,
+};
+
+function isMentorQuery(message) {
+  const lower = message.toLowerCase();
+  return MENTOR_INTENT_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+function extractMentorNameFromMessage(message, knownMentors) {
+  if (!knownMentors || knownMentors.length === 0) return null;
+  const lower = message.toLowerCase();
+  return knownMentors.find(m => lower.includes(m.displayName.toLowerCase())) || null;
+}
+
+
+// ─── Mentor Search for Chat Widget ────────────────────────────────────────────
+
+async function searchMentorsForChat(message, opts = {}) {
+  const lower = message.toLowerCase();
+  const { excludeIds = [], maxPriceOverride = null } = opts;
+
+  // Extract price ceiling
+  let maxPrice = maxPriceOverride;
+  if (!maxPrice) {
+    const priceMatch = lower.match(/(?:under|below|less than|₹|rs\.?)\s*(\d+)/i);
+    if (priceMatch) {
+      maxPrice = parseInt(priceMatch[1], 10) * 100; // convert ₹ to paise
+    }
+  }
+
+  // Extract skill keywords
+  const SKILL_KEYWORDS = [
+    'dsa', 'data structures', 'algorithms', 'ai', 'machine learning', 'ml',
+    'product manager', 'pm', 'startup', 'neet', 'jee', 'physics', 'math',
+    'mathematics', 'coding', 'python', 'javascript', 'react', 'node',
+    'system design', 'mock interview', 'resume', 'career', 'web dev',
+    'app dev', 'android', 'ios', 'research', 'finance', 'mba',
+    'consulting', 'biology', 'chemistry', 'medical', 'data science',
+    'blockchain', 'cloud', 'devops', 'design', 'interview',
+  ];
+  const foundSkills = SKILL_KEYWORDS.filter(k => lower.includes(k));
+
+  // Company/institution filter
+  const COMPANY_KEYWORDS = ['google', 'meta', 'amazon', 'microsoft', 'apple', 'netflix', 'faang'];
+  const COLLEGE_KEYWORDS = ['iit', 'aiims', 'bits', 'nit'];
+  const foundCompanies = COMPANY_KEYWORDS.filter(k => lower.includes(k));
+  const foundColleges = COLLEGE_KEYWORDS.filter(k => lower.includes(k));
+
+  // Build prisma where clause
+  const where = { approvalStatus: 'APPROVED', isActive: true };
+  if (maxPrice) where.pricePerSession = { lte: maxPrice };
+  if (excludeIds.length > 0) where.id = { notIn: excludeIds };
+
+  const orConditions = [];
+  if (foundSkills.length > 0) {
+    foundSkills.forEach(skill => {
+      orConditions.push({ expertise: { has: skill } });
+      orConditions.push({ bio: { contains: skill, mode: 'insensitive' } });
+      orConditions.push({ currentRole: { contains: skill, mode: 'insensitive' } });
+    });
+  }
+  if (foundCompanies.length > 0) {
+    foundCompanies.forEach(co => {
+      orConditions.push({ company: { contains: co, mode: 'insensitive' } });
+    });
+  }
+  if (foundColleges.length > 0) {
+    foundColleges.forEach(col => {
+      orConditions.push({ institutionName: { contains: col, mode: 'insensitive' } });
+    });
+  }
+  if (orConditions.length > 0) where.OR = orConditions;
+
+  const mentors = await prisma.mentor.findMany({
+    where,
+    select: {
+      id: true, displayName: true, bio: true, avatar: true,
+      currentRole: true, company: true, expertise: true,
+      institutionName: true, institutionType: true,
+      rating: true, totalSessions: true,
+      pricePerSession: true, sessionDuration: true,
+      isActive: true, approvalStatus: true,
+      categoryId: true,
+    },
+    orderBy: [{ rating: 'desc' }, { totalSessions: 'desc' }],
+    take: 4,
+  });
+
+  return mentors;
+}
+
+
+
 // ─── System Prompt Builder ────────────────────────────────────────────────────
 
 function buildSystemPrompt({ userName, userMemory, sessionSummary, platformContext, meetingContext }) {
@@ -211,13 +350,23 @@ IMPORTANT RULES FOR THIS CONVERSATION:
 1. Help students find the right mentor based on their goals, interests, and budget
 2. Answer questions about the platform (booking process, pricing, how sessions work)
 3. Provide career and education guidance
-4. Recommend specific mentors by name with profile links: [Mentor Name](/mentors/MENTOR_ID)
+4. Recommend specific mentors by name — ALWAYS as clickable markdown links: [Mentor Name](/mentors/MENTOR_ID)
+
+CRITICAL UI RULES — YOU MUST FOLLOW THESE WITHOUT EXCEPTION:
+- The app renders Mentor Cards automatically from the mentors returned by your response.
+- When your response includes mentors, NEVER write a bullet list or numbered list of mentors.
+- Instead, write a SINGLE SHORT sentence (max 15 words) as an intro, then stop. The UI shows the cards.
+- Examples of correct intro: "Here are some great DSA mentors for you:" or "I found these mentors matching your budget:"
+- Examples of WRONG responses: any list of names, any detailed text about multiple mentors.
+- When following up ("show more", "cheaper option", "other mentors"), again write only one intro sentence.
+- EVERY mentor name you write MUST be a markdown link: [Name](/mentors/ID). No plain text names ever.
+- For booking intent ("book him", "book her", "schedule"), respond with just: "Opening booking modal for you!" — the UI handles it.
+- Keep ALL responses under 100 words.
 
 RULES:
-- Be concise but warm. Short paragraphs.
-- Use ₹ for prices
-- Keep responses under 300 words
-- Use markdown formatting`;
+- Be concise but warm.
+- Use ₹ for prices.
+- Use markdown formatting.`;
 
   return prompt;
 }
@@ -293,21 +442,23 @@ async function chat(userId, userName, message, sessionId) {
     session = await prisma.aiSession.create({ data: { userId } });
   }
 
-  // 2. Load context (parallel)
-  const [userMemory, platformContext, last10] = await Promise.all([
+  // 2. Detect mentor intent early so we can run searches in parallel
+  const hasMentorIntent = isMentorQuery(message);
+
+  // 3. Load context (parallel) — optionally also load mentor results
+  const parallelJobs = [
     getUserMemory(userId),
     getPlatformContext(),
-    // Last 10 messages for context window (order desc, take 10, then reverse)
     prisma.aiMessage.findMany({
       where: { sessionId: session.id },
-      orderBy: [
-        { createdAt: 'desc' },
-        { id: 'desc' }
-      ],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 10,
       select: { role: true, content: true },
     }).then(rows => rows.reverse()),
-  ]);
+    hasMentorIntent ? searchMentorsForChat(message) : Promise.resolve(null),
+  ];
+
+  const [userMemory, platformContext, last10, mentorResults] = await Promise.all(parallelJobs);
 
   // Load meeting context if applicable
   let meetingContext = null;
@@ -315,7 +466,7 @@ async function chat(userId, userName, message, sessionId) {
     meetingContext = await getMeetingContext(session.bookingId);
   }
 
-  // 3. Build system prompt
+  // 4. Build system prompt
   const systemPrompt = buildSystemPrompt({
     userName,
     userMemory,
@@ -324,14 +475,14 @@ async function chat(userId, userName, message, sessionId) {
     meetingContext,
   });
 
-  // 4. Build messages array for Groq (last 10 + new user msg)
+  // 5. Build messages array for Groq (last 10 + new user msg)
   const groqMessages = [
     { role: 'system', content: systemPrompt },
     ...last10.map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: message },
   ];
 
-  // 5. Call Groq
+  // 6. Call Groq
   const completion = await client.chat.completions.create({
     model: MODEL,
     messages: groqMessages,
@@ -341,7 +492,7 @@ async function chat(userId, userName, message, sessionId) {
 
   const responseText = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
 
-  // 6. Persist both messages sequentially with explicit distinct timestamps to guarantee chronological tie-breaking
+  // 7. Persist both messages sequentially with explicit distinct timestamps to guarantee chronological tie-breaking
   const userCreatedAt = new Date();
   const assistantCreatedAt = new Date(userCreatedAt.getTime() + 100); // 100ms offset
 
@@ -358,7 +509,7 @@ async function chat(userId, userName, message, sessionId) {
     data: { messageCount: newCount },
   });
 
-  // 7. Async background jobs — never block the user
+  // 8. Async background jobs — never block the user
   const allMessages = [
     ...last10,
     { role: 'user', content: message },
@@ -375,8 +526,13 @@ async function chat(userId, userName, message, sessionId) {
     setImmediate(() => updateUserMemory(userId, allMessages));
   }
 
-  return { response: responseText, sessionId: session.id };
+  return {
+    response: responseText,
+    sessionId: session.id,
+    mentors: mentorResults && mentorResults.length > 0 ? mentorResults : undefined,
+  };
 }
+
 
 // ─── End Session ──────────────────────────────────────────────────────────────
 
