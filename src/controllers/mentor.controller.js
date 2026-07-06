@@ -71,14 +71,20 @@ async function getOwnProfile(req, res) {
 
 async function updateOwnProfile(req, res) {
   try {
-    const { bio, expertise, pricePerSession, sessionDuration, linkedinUrl, displayName } = req.body;
+    const { bio, expertise, pricePerSession, sessionDuration, linkedinUrl, displayName, location, activeStatus, averageResponseTime, languages, experienceYears, isOnline } = req.body;
     const data = {};
     if (bio) data.bio = bio;
     if (expertise) data.expertise = expertise;
-    if (pricePerSession) data.pricePerSession = pricePerSession;
-    if (sessionDuration) data.sessionDuration = sessionDuration;
-    if (linkedinUrl) data.linkedinUrl = linkedinUrl;
+    if (pricePerSession !== undefined) data.pricePerSession = pricePerSession;
+    if (sessionDuration !== undefined) data.sessionDuration = sessionDuration;
+    if (linkedinUrl !== undefined) data.linkedinUrl = linkedinUrl;
     if (displayName) data.displayName = displayName;
+    if (location !== undefined) data.location = location;
+    if (activeStatus !== undefined) data.activeStatus = activeStatus;
+    if (averageResponseTime !== undefined) data.averageResponseTime = averageResponseTime;
+    if (languages !== undefined) data.languages = languages;
+    if (experienceYears !== undefined) data.experienceYears = experienceYears !== null ? parseInt(experienceYears) : null;
+    if (isOnline !== undefined) data.isOnline = isOnline === true || isOnline === 'true';
     const mentor = await prisma.mentor.update({ where: { userId: req.user.id }, data });
     res.json({ mentor });
   } catch (e) { res.status(500).json({ error: 'Update failed' }); }

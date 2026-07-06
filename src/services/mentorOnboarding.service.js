@@ -288,7 +288,15 @@ async function summarize(userId) {
     prisma.mentorMemory.create({ data: { mentorId: userId, content: transcript, metadata: { type: 'onboarding_transcript', answerCount: answers.length }, embedding: tinyEmbedding(transcript) } }),
     prisma.mentor.upsert({
       where: { userId },
-      update: { displayName: result.preferredName || result.name || user.name, bio: result.bio || '', currentRole: result.role || null, company: result.company || null, expertise: result.expertiseTags || result.skills || [] },
+      update: {
+        displayName: result.preferredName || result.name || user.name,
+        bio: result.bio || '',
+        currentRole: result.role || null,
+        company: result.company || null,
+        expertise: result.expertiseTags || result.skills || [],
+        location: result.location || null,
+        experienceYears: result.experienceYears || null,
+      },
       create: {
         userId,
         displayName: result.preferredName || result.name || user.name,
@@ -302,6 +310,11 @@ async function summarize(userId) {
         categoryId: category.id,
         pricePerSession: 0,
         sessionDuration: 30,
+        location: result.location || null,
+        activeStatus: 'Active this week',
+        averageResponseTime: '1 day',
+        languages: 'Speaks English',
+        experienceYears: result.experienceYears || null,
       },
     }),
   ]);

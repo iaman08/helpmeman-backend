@@ -50,6 +50,12 @@ async function main() {
         expertise: ['JEE Preparation', 'DSA', 'System Design', 'Google Interview', 'Competitive Programming'],
         pricePerSession: 49900, sessionDuration: 60, rating: 4.8, totalSessions: 47,
         categorySlug: 'jee-neet-prep',
+        location: 'Bangalore, India',
+        activeStatus: 'Active today',
+        averageResponseTime: '2 hours',
+        languages: 'Speaks English and Hindi',
+        experienceYears: 3,
+        isOnline: true,
       },
     },
     {
@@ -64,6 +70,12 @@ async function main() {
         expertise: ['NEET Preparation', 'MBBS Guidance', 'PG Entrance', 'Medical Residency', 'Study Planning'],
         pricePerSession: 29900, sessionDuration: 30, rating: 4.9, totalSessions: 63,
         categorySlug: 'jee-neet-prep',
+        location: 'Delhi, India',
+        activeStatus: 'Active this week',
+        averageResponseTime: '6 hours',
+        languages: 'Speaks English and Hindi',
+        experienceYears: 5,
+        isOnline: true,
       },
     },
     {
@@ -78,6 +90,12 @@ async function main() {
         expertise: ['Product Management', 'PM Interviews', 'Career Switching', 'Resume Building', 'BITS Pilani'],
         pricePerSession: 39900, sessionDuration: 45, rating: 4.7, totalSessions: 35,
         categorySlug: 'campus-placements',
+        location: 'Mumbai, India',
+        activeStatus: 'Active today',
+        averageResponseTime: '1 hour',
+        languages: 'Speaks English and Hindi',
+        experienceYears: 6,
+        isOnline: false,
       },
     },
     {
@@ -92,6 +110,12 @@ async function main() {
         expertise: ['CLAT Preparation', 'Corporate Law', 'NLU Life', 'Legal Career', 'M&A'],
         pricePerSession: 24900, sessionDuration: 30, rating: 4.6, totalSessions: 28,
         categorySlug: 'law',
+        location: 'Bangalore, India',
+        activeStatus: 'Active this week',
+        averageResponseTime: '1 day',
+        languages: 'Speaks English and Telugu',
+        experienceYears: 4,
+        isOnline: false,
       },
     },
     {
@@ -106,6 +130,12 @@ async function main() {
         expertise: ['Machine Learning', 'Quant Finance', 'FAANG Interviews', 'IIT Guidance', 'Career Transition'],
         pricePerSession: 59900, sessionDuration: 60, rating: 4.9, totalSessions: 52,
         categorySlug: 'faang',
+        location: 'San Francisco, USA',
+        activeStatus: 'Active yesterday',
+        averageResponseTime: '3 hours',
+        languages: 'Speaks English and Hindi',
+        experienceYears: 7,
+        isOnline: true,
       },
     },
     {
@@ -120,6 +150,12 @@ async function main() {
         expertise: ['Startup Building', 'Fundraising', 'Product-Market Fit', 'EdTech', 'IIT to Startup'],
         pricePerSession: 49900, sessionDuration: 45, rating: 4.8, totalSessions: 31,
         categorySlug: 'startup',
+        location: 'Chennai, India',
+        activeStatus: 'Active today',
+        averageResponseTime: '2 hours',
+        languages: 'Speaks English and Tamil',
+        experienceYears: 6,
+        isOnline: true,
       },
     },
     {
@@ -134,6 +170,12 @@ async function main() {
         expertise: ['DSA', 'Off-Campus Placement', 'Amazon Interview', 'NIT Life', 'Tier-2 to FAANG'],
         pricePerSession: 19900, sessionDuration: 30, rating: 4.5, totalSessions: 89,
         categorySlug: 'faang',
+        location: 'Pune, India',
+        activeStatus: 'Active this week',
+        averageResponseTime: '5 hours',
+        languages: 'Speaks English, Hindi and Gujarati',
+        experienceYears: 5,
+        isOnline: false,
       },
     },
     {
@@ -148,6 +190,12 @@ async function main() {
         expertise: ['Investment Banking', 'Finance Career', 'IB Interviews', 'CA vs MBA', 'Commerce Guidance'],
         pricePerSession: 44900, sessionDuration: 45, rating: 4.7, totalSessions: 41,
         categorySlug: 'mba',
+        location: 'Mumbai, India',
+        activeStatus: 'Active yesterday',
+        averageResponseTime: '2 hours',
+        languages: 'Speaks English and Malayalam',
+        experienceYears: 6,
+        isOnline: false,
       },
     },
   ];
@@ -175,6 +223,14 @@ async function main() {
           categoryId: catMap[categorySlug],
           approvalStatus: 'APPROVED',
           isActive: true,
+        },
+      });
+    } else {
+      await prisma.mentor.update({
+        where: { id: existing.id },
+        data: {
+          ...mentorFields,
+          categoryId: catMap[categorySlug],
         },
       });
     }
