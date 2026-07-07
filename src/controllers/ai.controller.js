@@ -28,6 +28,38 @@ async function chatWithAI(req, res) {
   }
 }
 
+// POST /api/ai/chat/stream — SSE streaming
+async function chatWithAIStream(req, res) {
+  try {
+    const { message, sessionId } = req.body;
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+    if (message.length > 2000) {
+      return res.status(400).json({ error: 'Message too long (max 2000 characters)' });
+    }
+
+    const userId = req.user.id;
+    const userName = req.user.name || 'Student';
+
+    // chatStream handles SSE headers and writing directly to res
+    await aiService.chatStream(userId, userName, message.trim(), sessionId || null, res);
+  } catch (error) {
+    console.error('AI stream error:', error.message);
+    if (!res.headersSent) {
+      if (error.message.includes('GROQ_API_KEY')) {
+        return res.status(503).json({ error: 'AI service not configured.' });
+      }
+      res.status(500).json({ error: 'AI service temporarily unavailable.' });
+    } else {
+      try {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: 'Stream error' })}\n\n`);
+        res.end();
+      } catch { /* already closed */ }
+    }
+  }
+}
+
 // POST /api/ai/sessions  — create a new session
 async function createSession(req, res) {
   try {
@@ -133,6 +165,7 @@ async function renameSession(req, res) {
 
 module.exports = {
   chatWithAI,
+  chatWithAIStream,
   createSession,
   getSessions,
   resumeSession,

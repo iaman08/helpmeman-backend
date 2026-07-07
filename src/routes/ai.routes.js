@@ -8,6 +8,7 @@ router.use(authenticate);
 
 // Chat
 router.post('/chat', generalLimiter, ai.chatWithAI);
+router.post('/chat/stream', generalLimiter, ai.chatWithAIStream);
 router.post('/clear', ai.clearChat); // legacy
 
 // Sessions
