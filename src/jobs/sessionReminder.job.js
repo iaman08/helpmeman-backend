@@ -11,11 +11,10 @@ try {
   console.warn('BullMQ not available, session reminders disabled');
 }
 
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { sendNotification } = require('../services/notification.service');
 const { sendNotificationEmail } = require('../services/email.service');
 
-const prisma = new PrismaClient();
 
 let reminderQueue = null;
 
@@ -75,6 +74,12 @@ function initReminderQueue(redisUrl) {
       }, { connection });
 
       worker.on('error', err => {
+        if (err.message && err.message.includes('max requests limit exceeded')) {
+          console.warn('⚠️ Upstash Redis limit reached. Disabling session reminders queue to prevent console flood.');
+          worker.close().catch(() => {});
+          reminderQueue = null;
+          return;
+        }
         if (err.code !== 'ECONNREFUSED') console.error('BullMQ worker error:', err);
       });
 

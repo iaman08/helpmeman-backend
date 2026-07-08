@@ -1,10 +1,9 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { sendNotificationEmail } = require('./email.service');
 const { sendPushToUser } = require('./fcm.service');
 const { actionUrlForType } = require('../emails/notificationEmail');
 const config = require('../config/env');
 
-const prisma = new PrismaClient();
 
 const MESSAGE_TYPES = new Set(['CHAT_MESSAGE', 'CHAT_REPLY', 'NEW_CHAT_THREAD']);
 const MENTOR_TYPES = new Set(['MENTOR_APPROVED', 'MENTOR_REJECTED']);

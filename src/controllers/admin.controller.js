@@ -1,6 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
 const { approveMentor, rejectMentor } = require('../services/mentorApproval.service');
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 async function getDashboard(req, res) {
   try {

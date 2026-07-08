@@ -26,16 +26,16 @@ async function main() {
   categories.forEach((c) => (catMap[c.slug] = c.id));
 
   // ─── Admin User ───
-  const adminHash = await hashPw('admin123456');
+  const adminHash = await hashPw('password123');
   const admin = await prisma.user.upsert({
     where: { email: 'admin@helpmeman.com' },
-    update: {},
+    update: { passwordHash: adminHash },
     create: { name: 'HelpMeMan Admin', email: 'admin@helpmeman.com', passwordHash: adminHash, role: 'ADMIN', isEmailVerified: true },
   });
   console.log(`✅ Admin: ${admin.email}`);
 
   // ─── Mentors ───
-  const mentorPw = await hashPw('mentor123456');
+  const mentorPw = await hashPw('password123');
 
   const mentorProfiles = [
     {
@@ -198,18 +198,42 @@ async function main() {
         isOnline: false,
       },
     },
+    {
+      user: { name: 'Demo Mentor', email: 'mentor@helpmeman.com' },
+      mentor: {
+        displayName: 'Demo Mentor',
+        bio: 'Experienced software builder and career guide. Helping students navigate tech recruitment and software engineering careers.',
+        institutionType: 'COMPANY', institutionName: 'HelpMeMan Inc.', institutionEmail: 'mentor@helpmeman.com',
+        department: 'Engineering', graduationYear: 2018,
+        currentRole: 'Principal SDE', company: 'HelpMeMan',
+        linkedinUrl: 'https://linkedin.com/in/demomentor',
+        expertise: ['Software Engineering', 'System Design', 'Career Advice'],
+        pricePerSession: 0, sessionDuration: 30, rating: 5.0, totalSessions: 12,
+        categorySlug: 'faang',
+        location: 'Bangalore, India',
+        activeStatus: 'Active today',
+        averageResponseTime: '1 hour',
+        languages: 'Speaks English',
+        experienceYears: 8,
+        isOnline: true,
+      },
+    },
   ];
 
   for (const md of mentorProfiles) {
     const { categorySlug, ...mentorFields } = md.mentor;
     const user = await prisma.user.upsert({
       where: { email: md.user.email },
-      update: {},
+      update: {
+        role: 'MENTOR',
+        onboardingRole: 'MENTOR',
+      },
       create: {
         name: md.user.name,
         email: md.user.email,
         passwordHash: mentorPw,
         role: 'MENTOR',
+        onboardingRole: 'MENTOR',
         isEmailVerified: true,
       },
     });
@@ -234,23 +258,66 @@ async function main() {
         },
       });
     }
+
+    // Seed Completed MentorProfile so they bypass onboarding
+    await prisma.mentorProfile.upsert({
+      where: { mentorId: user.id },
+      update: {
+        name: md.user.name,
+        preferredName: mentorFields.displayName,
+        role: mentorFields.currentRole,
+        company: mentorFields.company,
+        location: mentorFields.location,
+        skills: mentorFields.expertise,
+        experienceYears: mentorFields.experienceYears,
+        bio: mentorFields.bio,
+        onboardingStatus: 'COMPLETED',
+        completedAt: new Date(),
+        currentQuestion: 17,
+      },
+      create: {
+        mentorId: user.id,
+        name: md.user.name,
+        preferredName: mentorFields.displayName,
+        role: mentorFields.currentRole,
+        company: mentorFields.company,
+        location: mentorFields.location,
+        skills: mentorFields.expertise,
+        experienceYears: mentorFields.experienceYears,
+        bio: mentorFields.bio,
+        onboardingStatus: 'COMPLETED',
+        completedAt: new Date(),
+        currentQuestion: 17,
+      },
+    });
+
     console.log(`  ✅ ${mentorFields.displayName} (${mentorFields.institutionName})`);
   }
 
   // ─── Sample Student ───
-  const studentPw = await hashPw('student123456');
+  const studentPw = await hashPw('password123');
   await prisma.user.upsert({
     where: { email: 'student@helpmeman.com' },
-    update: {},
-    create: { name: 'Riya Gupta', email: 'student@helpmeman.com', passwordHash: studentPw, role: 'USER', isEmailVerified: true },
+    update: {
+      passwordHash: studentPw,
+      onboardingRole: 'MENTEE',
+    },
+    create: {
+      name: 'Riya Gupta',
+      email: 'student@helpmeman.com',
+      passwordHash: studentPw,
+      role: 'USER',
+      onboardingRole: 'MENTEE',
+      isEmailVerified: true,
+    },
   });
   console.log(`  ✅ Student: student@helpmeman.com`);
 
   console.log('\n🎉 Seeding complete!\n');
   console.log('Test accounts:');
-  console.log('  Admin:   admin@helpmeman.com / admin123456');
-  console.log('  Student: student@helpmeman.com / student123456');
-  console.log('  Mentors: [name].mentor@helpmeman.com / mentor123456');
+  console.log('  Admin:   admin@helpmeman.com / password123');
+  console.log('  Student: student@helpmeman.com / password123');
+  console.log('  Mentors: mentor@helpmeman.com / password123');
 }
 
 main()

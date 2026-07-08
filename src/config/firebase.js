@@ -33,4 +33,5 @@ if (!admin.apps.length) {
   }
 }
 
+// Nodemon restart trigger v2
 module.exports = admin;

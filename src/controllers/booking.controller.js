@@ -1,9 +1,9 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { createOrder, verifyPaymentSignature } = require('../services/payment.service');
 const { createMeetingEvent } = require('../services/googleMeet.service');
 const { sendNotification } = require('../services/notification.service');
 const config = require('../config/env');
-const prisma = new PrismaClient();
+
 
 async function createBooking(req, res) {
   try {

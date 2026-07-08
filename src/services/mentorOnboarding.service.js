@@ -1,8 +1,7 @@
 const Groq = require('groq-sdk');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const config = require('../config/env');
 
-const prisma = new PrismaClient();
 const MODEL = 'llama-3.3-70b-versatile';
 
 const QUESTIONS = [

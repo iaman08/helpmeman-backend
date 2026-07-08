@@ -1,13 +1,12 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { hashPassword, comparePassword } = require('../utils/hash');
 const { uploadImage } = require('../services/upload.service');
 const { getUserNotifications, markAsRead, markAllReadForUser, deleteNotification, getNotificationAnalytics, registerDevice, removeDevice, updatePreferences, getPreferences } = require('../services/notification.service');
 const { saveUserToFirestore, getUserFromFirestore, isUsernameAvailable, setUsername } = require('../services/firestore.service');
-const prisma = new PrismaClient();
 
 async function getProfile(req, res) {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, isEmailVerified: true, createdAt: true } });
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true } });
 
     // Enrich with Firestore data (username, etc.)
     let firestoreData = null;
@@ -15,6 +14,7 @@ async function getProfile(req, res) {
 
     const enrichedUser = {
       ...user,
+      onboardingRole: user.onboardingRole || null,
       name: firestoreData?.name || user.name,
       phone: firestoreData?.phone || user.phone || null,
       avatar: firestoreData?.avatar || user.avatar || null,
@@ -35,7 +35,7 @@ async function updateProfile(req, res) {
     if (req.file) data.avatar = await uploadImage(req.file, 'avatars');
     
     // Update basic info in Postgres
-    const user = await prisma.user.update({ where: { id: req.user.id }, data, select: { id: true, name: true, email: true, phone: true, avatar: true } });
+    const user = await prisma.user.update({ where: { id: req.user.id }, data, select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true } });
 
     // Handle Username Uniqueness (if requested)
     if (username) {
@@ -58,6 +58,7 @@ async function updateProfile(req, res) {
 
     const enrichedUser = {
       ...user,
+      onboardingRole: user.onboardingRole || null,
       name: firestoreData?.name || user.name,
       phone: firestoreData?.phone || user.phone || null,
       avatar: firestoreData?.avatar || user.avatar || null,

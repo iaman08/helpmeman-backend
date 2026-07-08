@@ -34,6 +34,12 @@ function initNotificationQueue(redisUrl) {
       );
 
       worker.on('error', (err) => {
+        if (err.message && err.message.includes('max requests limit exceeded')) {
+          console.warn('⚠️ Upstash Redis limit reached. Disabling notification queue to prevent console flood.');
+          worker.close().catch(() => {});
+          notificationQueue = null;
+          return;
+        }
         if (err.code !== 'ECONNREFUSED') console.error('Notification worker error:', err.message);
       });
 

@@ -1,6 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { verifyWebhookSignature, initiateRefund } = require('../services/payment.service');
-const prisma = new PrismaClient();
+
 
 async function createPaymentOrder(req, res) {
   try {

@@ -3,9 +3,8 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const Groq = require('groq-sdk');
 const config = require('../config/env');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 
-const prisma = new PrismaClient();
 
 // Strict rate limiter for public demo — 10 requests per 15 minutes per IP
 const demoLimiter = rateLimit({

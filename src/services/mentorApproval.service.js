@@ -1,8 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { sendMentorApprovalEmail } = require('./email.service');
 const { sendNotification } = require('./notification.service');
 
-const prisma = new PrismaClient();
 
 async function approveMentor(mentorId) {
   const mentor = await prisma.mentor.update({

@@ -1,6 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { startOrGetThread, sendMessage, getThreadMessages, markThreadRead, closeThread } = require('../services/chat.service');
-const prisma = new PrismaClient();
+
 
 async function createThread(req, res) {
   try {

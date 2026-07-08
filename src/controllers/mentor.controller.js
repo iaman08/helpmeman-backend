@@ -1,7 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { uploadImage, uploadDocument } = require('../services/upload.service');
 const { getMentorNotifications } = require('../services/notification.service');
-const prisma = new PrismaClient();
 
 // ─── Public ───
 async function searchMentors(req, res) {

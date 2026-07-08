@@ -1,7 +1,6 @@
 const admin = require('../config/firebase');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 
-const prisma = new PrismaClient();
 
 async function sendPushToTokens(tokens, { title, body, data = {} }) {
   if (!tokens.length) return { sent: 0, failed: 0, invalidTokens: [] };

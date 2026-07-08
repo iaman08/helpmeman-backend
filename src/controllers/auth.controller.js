@@ -1,4 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { hashPassword, comparePassword } = require('../utils/hash');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken, generateEmailToken, verifyEmailToken } = require('../utils/jwt');
 const { generateOTP, storeOTP, verifyOTP, canRequestOTP, getOTPCooldown } = require('../utils/otp');
@@ -10,7 +10,6 @@ const config = require('../config/env');
 const crypto = require('crypto');
 const firebaseAdmin = require('../config/firebase');
 
-const prisma = new PrismaClient();
 
 // POST /api/auth/register
 // Does NOT create user — sends OTP to email for verification
@@ -34,16 +33,17 @@ async function register(req, res) {
       return res.status(429).json({ error: rateCheck.reason, cooldown: rateCheck.cooldown });
     }
 
-    // Generate and send OTP
+    // Generate and send OTP — respond immediately, email is fire-and-forget
     const otp = generateOTP();
-    await storeOTP(email, otp);
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`\n📧 [DEV] Signup OTP for ${email}: ${otp}\n`);
-    }
-    await sendOtpEmail({ email: email.toLowerCase(), name, otp, purpose: 'verify' });
+    await storeOTP(email, otp, 'verify');
 
     res.json({ message: 'OTP sent to your email', email: email.toLowerCase(), requiresOTP: true });
+
+    // Send email asynchronously
+    sendOtpEmail({ email: email.toLowerCase(), name, otp, purpose: 'verify' })
+      .catch((emailError) => {
+        console.error('sendOtpEmail threw unexpectedly:', emailError.message);
+      });
   } catch (error) {
     console.error('Register error:', error);
     res.status(500).json({ error: 'Registration failed' });
@@ -63,8 +63,12 @@ async function verifySignupOTP(req, res) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
-    // Check if user was created in the meantime (race condition) or is already verified
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    // Run user lookup and OTP verification in parallel — saves one sequential DB round-trip
+    const [existing, otpResult] = await Promise.all([
+      prisma.user.findUnique({ where: { email: email.toLowerCase() }, select: { id: true, name: true, email: true, isEmailVerified: true, role: true, passwordHash: true, phone: true } }),
+      verifyOTP(email, otp),
+    ]);
+
     if (existing && existing.isEmailVerified) {
       return res.status(409).json({ error: 'Email already registered' });
     }
@@ -74,10 +78,8 @@ async function verifySignupOTP(req, res) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    // Verify OTP
-    const result = await verifyOTP(email, otp);
-    if (!result.valid) {
-      return res.status(400).json({ error: result.error });
+    if (!otpResult.valid) {
+      return res.status(400).json({ error: otpResult.error });
     }
 
     // OTP verified — create user or update existing unverified user
@@ -86,12 +88,7 @@ async function verifySignupOTP(req, res) {
     if (existing) {
       user = await prisma.user.update({
         where: { id: existing.id },
-        data: {
-          name: userName,
-          passwordHash,
-          phone: phone || null,
-          isEmailVerified: true,
-        },
+        data:  { name: userName, passwordHash, phone: phone || null, isEmailVerified: true },
       });
     } else {
       user = await prisma.user.create({
@@ -138,6 +135,7 @@ async function verifySignupOTP(req, res) {
         name: user.name,
         email: user.email,
         role: user.role,
+        onboardingRole: user.onboardingRole || null,
         username: null,
         currentRole: null,
       },
@@ -232,6 +230,7 @@ async function verifyMentorOTP(req, res) {
         name: user.name,
         email: user.email,
         role: user.role,
+        onboardingRole: user.onboardingRole || null,
         username: null,
         currentRole: mentor.currentRole || null
       },
@@ -305,6 +304,7 @@ async function login(req, res) {
         email: user.email,
         role: user.role,
         avatar: user.avatar,
+        onboardingRole: user.onboardingRole || null,
         username: firestoreData?.username || null,
         currentRole: firestoreData?.currentRole || null,
       },
@@ -370,14 +370,16 @@ async function forgotPassword(req, res) {
     }
 
     const otp = generateOTP();
-    await storeOTP(email, otp);
+    await storeOTP(email, otp, 'reset');
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`\n🔑 [DEV] Password reset OTP for ${email}: ${otp}\n`);
-    }
-    await sendOtpEmail({ email: user.email, name: user.name, otp, purpose: 'reset' });
-
+    // Respond IMMEDIATELY — don't wait for email delivery
     res.json({ message: 'If account exists, OTP sent to email' });
+
+    // Send email asynchronously (fire-and-forget)
+    sendOtpEmail({ email: user.email, name: user.name, otp, purpose: 'reset' })
+      .catch((emailError) => {
+        console.error('sendOtpEmail threw unexpectedly:', emailError.message);
+      });
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ error: 'Failed to process request' });
@@ -393,24 +395,27 @@ async function verifyResetOTP(req, res) {
       return res.status(400).json({ error: 'Email and OTP are required' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid OTP' });
-    }
+    // Run user lookup and OTP verification in parallel
+    const [user, result] = await Promise.all([
+      prisma.user.findUnique({ where: { email: email.toLowerCase() }, select: { id: true, isEmailVerified: true } }),
+      verifyOTP(email, otp, 'reset'),
+    ]);
 
-    const result = await verifyOTP(email, otp);
+    // Check OTP first (most common failure path)
     if (!result.valid) {
       return res.status(400).json({ error: result.error });
     }
 
-    // Mark email as verified (helps legacy unverified users)
-    if (!user.isEmailVerified) {
-      await prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } });
+    if (!user) {
+      return res.status(400).json({ error: 'Account not found' });
     }
 
-    // Generate short-lived reset token (15 minutes)
-    const resetToken = generateEmailToken({ userId: user.id, type: 'password_reset' });
+    // Mark email as verified (helps legacy unverified users) — fire-and-forget
+    if (!user.isEmailVerified) {
+      prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } }).catch(() => {});
+    }
 
+    const resetToken = generateEmailToken({ userId: user.id, type: 'password_reset' });
     res.json({ resetToken, message: 'OTP verified successfully' });
   } catch (error) {
     console.error('Verify reset OTP error:', error);
@@ -556,6 +561,7 @@ async function googleLogin(req, res) {
         email: user.email,
         role: user.role,
         avatar: user.avatar,
+        onboardingRole: user.onboardingRole || null,
         username: firestoreData?.username || null,
         currentRole: firestoreData?.currentRole || null,
       },

@@ -1,6 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { sendNotification } = require('./notification.service');
-const prisma = new PrismaClient();
+
 
 async function startOrGetThread(userId, mentorId) {
   let thread = await prisma.chatThread.findUnique({
