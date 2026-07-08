@@ -259,21 +259,30 @@ async function verifyEmail(req, res) {
 
 // POST /api/auth/login
 async function login(req, res) {
+  const { email, password } = req.body;
+  console.log(`[AUTH] Login attempt initiated for: ${email}`);
   try {
-    const { email, password } = req.body;
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!user) {
+      console.warn(`[AUTH] Login failed: User not found for email: ${email}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     // Google-only users (no password) should use Google login
     if (!user.passwordHash) {
+      console.warn(`[AUTH] Login failed: User has no password hash (Google-only authentication) for email: ${email}`);
       return res.status(401).json({ error: 'This account uses Google sign-in. Please use "Continue with Google".' });
     }
 
     const valid = await comparePassword(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!valid) {
+      console.warn(`[AUTH] Login failed: Incorrect password hash comparison for email: ${email}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     // Block unverified users
     if (!user.isEmailVerified) {
+      console.warn(`[AUTH] Login failed: User email is not verified for email: ${email}`);
       return res.status(403).json({
         error: 'Please verify your email first. Check your inbox for the verification OTP.',
         requiresVerification: true,
@@ -281,6 +290,7 @@ async function login(req, res) {
       });
     }
 
+    console.log(`[AUTH] Login credentials verified. Generating tokens for user: ${email} (ID: ${user.id}, Role: ${user.role})`);
     const accessToken = generateAccessToken({ userId: user.id, role: user.role });
     const refreshToken = generateRefreshToken({ userId: user.id });
     await prisma.refreshToken.create({ data: { token: refreshToken, userId: user.id, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
@@ -288,15 +298,27 @@ async function login(req, res) {
     let mentorData = null;
     if (user.role === 'MENTOR') {
       mentorData = await prisma.mentor.findUnique({ where: { userId: user.id }, select: { id: true, approvalStatus: true, isActive: true } });
+      console.log(`[AUTH] Mentor profile fetched:`, mentorData);
     }
 
     // Sync user to Firestore on login
-    try { await saveUserToFirestore(user); } catch (e) { console.warn('Firestore sync failed (login):', e.message); }
+    try { 
+      await saveUserToFirestore(user); 
+      console.log(`[AUTH] Successfully synced user ${email} to Firestore`);
+    } catch (e) { 
+      console.warn('[AUTH] Firestore sync failed (login):', e.message); 
+    }
 
     // Fetch enriched Firestore data
     let firestoreData = null;
-    try { firestoreData = await getUserFromFirestore(user.id); } catch (e) { /* silent */ }
+    try { 
+      firestoreData = await getUserFromFirestore(user.id); 
+      console.log(`[AUTH] Successfully fetched user ${email} enriched Firestore data`);
+    } catch (e) { 
+      console.warn('[AUTH] Fetching enriched Firestore data failed:', e.message);
+    }
 
+    console.log(`[AUTH] Login completed successfully for user: ${email}`);
     res.json({
       user: {
         id: user.id,
@@ -313,7 +335,7 @@ async function login(req, res) {
       refreshToken
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error(`[AUTH] Login execution crashed for email: ${email}`, error);
     res.status(500).json({ error: 'Login failed' });
   }
 }

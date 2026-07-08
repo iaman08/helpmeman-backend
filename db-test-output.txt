@@ -1,0 +1,35 @@
+Testing connection to DATABASE_URL: postgresql://neondb_owner:****@ep-steep-union-aphexsvc.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&connect_timeout=30
+✅ Success! Connected to database. Total users: 42
+✅ Total categories: 9
+
+Checking user: admin@helpmeman.com...
+✅ User found:
+  - ID: cmoxi94ql0008k8yk0jlcd3ju
+  - Name: HelpMeMan Admin
+  - Role: ADMIN
+  - Email Verified: true
+  - Has Password Hash: true
+  - Hash value: $2a$12$kKDDY/ffG44zH7su2Y7l3eTLiDWo5EFcjcp3SfMehg0B3SnfzReRK
+  - Bcrypt compare with 'password123': VALID ✅
+
+Checking user: mentor@helpmeman.com...
+⚠️ Detected invalid password hash 'hashed_demo_password' for mentor. Running auto-fix...
+✅ Auto-fix complete! Password hash updated.
+✅ User found:
+  - ID: demo_mentor
+  - Name: Demo Mentor
+  - Role: MENTOR
+  - Email Verified: true
+  - Has Password Hash: true
+  - Hash value: $2a$12$Gy7j/yy5gDI9Z8rvEE742OVxXtOztIIq2LYiPQAZuu/.ThFROCcyW
+  - Bcrypt compare with 'password123': VALID ✅
+
+Checking user: student@helpmeman.com...
+✅ User found:
+  - ID: cmoxi9l5t000xk8yk02nbcdjw
+  - Name: Riya Gupta
+  - Role: USER
+  - Email Verified: true
+  - Has Password Hash: true
+  - Hash value: $2a$12$220MC5Y8ZflS6Vob3f8/tOzJVuI1ccxkWPYyTIf3Ba0P37NKS.hbi
+  - Bcrypt compare with 'password123': VALID ✅

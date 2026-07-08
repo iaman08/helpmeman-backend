@@ -13,6 +13,7 @@
     "db:migrate": "npx prisma migrate dev",
     "db:seed": "node prisma/seed.js",
     "db:studio": "npx prisma studio",
+    "db:test": "node scratch-db-test.js",
     "test-smtp": "node src/test-smtp.js"
   },
   "dependencies": {

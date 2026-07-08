@@ -227,6 +227,7 @@ async function main() {
       update: {
         role: 'MENTOR',
         onboardingRole: 'MENTOR',
+        passwordHash: mentorPw,
       },
       create: {
         name: md.user.name,
