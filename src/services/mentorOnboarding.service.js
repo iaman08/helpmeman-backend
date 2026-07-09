@@ -389,9 +389,16 @@ async function answer(userId, answerText, skip = false) {
       createdAt: new Date().toISOString(),
     };
 
-    await prisma.mentorOnboarding.update({
+    await prisma.mentorOnboarding.upsert({
       where: { userId },
-      data: {
+      create: {
+        userId,
+        answers: updatedAnswers,
+        messages: [userMsg, finalMsg],
+        currentQuestion: nextIndex,
+        completed: false,
+      },
+      update: {
         answers: updatedAnswers,
         messages: [...(onboarding?.messages || []), userMsg, finalMsg],
         currentQuestion: nextIndex,
@@ -427,17 +434,31 @@ async function answer(userId, answerText, skip = false) {
   };
 
   await Promise.all([
-    prisma.mentorOnboarding.update({
+    prisma.mentorOnboarding.upsert({
       where: { userId },
-      data: {
+      create: {
+        userId,
+        currentQuestion: nextIndex,
+        answers: updatedAnswers,
+        messages: [userMsg, ruthMsg],
+        completed: false,
+      },
+      update: {
         currentQuestion: nextIndex,
         answers: updatedAnswers,
         messages: [...(onboarding?.messages || []), userMsg, ruthMsg],
       },
     }),
-    prisma.mentorProfile.update({
+    prisma.mentorProfile.upsert({
       where: { mentorId: userId },
-      data: {
+      create: {
+        mentorId: userId,
+        skills: [],
+        expertiseTags: [],
+        onboardingStatus: 'IN_PROGRESS',
+        currentQuestion: nextIndex,
+      },
+      update: {
         currentQuestion: nextIndex,
         onboardingStatus: 'IN_PROGRESS',
       },
