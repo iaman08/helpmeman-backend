@@ -97,6 +97,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use(generalLimiter);
 app.use(gzipMiddleware);
 
+// Disable caching for all API responses to ensure user data isolation
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // Request timing — adds X-Response-Time header visible in browser DevTools
 app.use((req, _res, next) => {
   const start = process.hrtime.bigint();
@@ -113,6 +121,7 @@ app.use((req, _res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/mentors', mentorRoutes);
+app.use('/api/mentor/onboarding', onboardingRoutes);
 app.use('/api/mentor', mentorDashboardRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentRoutes);
@@ -121,7 +130,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/public/ai', publicAiRoutes);
-app.use('/api/onboarding', onboardingRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

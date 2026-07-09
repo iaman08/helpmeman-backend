@@ -1,6 +1,15 @@
 const rateLimit = require('express-rate-limit');
 
-const generalLimiter = rateLimit({
+const isDev = process.env.NODE_ENV === 'development';
+
+const makeLimiter = (options) => {
+  if (isDev) {
+    return (req, res, next) => next();
+  }
+  return rateLimit(options);
+};
+
+const generalLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100,
   standardHeaders: true,
@@ -8,7 +17,7 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
-const authLimiter = rateLimit({
+const authLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000,
   max: 5,
   standardHeaders: true,
@@ -16,7 +25,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth attempts, please try again later.' },
 });
 
-const otpLimiter = rateLimit({
+const otpLimiter = makeLimiter({
   windowMs: 60 * 1000, // 1 minute
   max: 3,
   standardHeaders: true,
@@ -24,7 +33,7 @@ const otpLimiter = rateLimit({
   message: { error: 'Too many OTP requests. Please wait a moment.' },
 });
 
-const uploadLimiter = rateLimit({
+const uploadLimiter = makeLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 20,
   message: { error: 'Upload limit reached, try again later.' },

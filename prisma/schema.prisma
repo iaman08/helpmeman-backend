@@ -28,12 +28,14 @@ model User {
   userMemory      UserMemory?
   onboardingRole String?
   mentorOnboardingAnswers MentorOnboardingAnswer[]
+  mentorOnboarding        MentorOnboarding?
   mentorProfile   MentorProfile?
   mentorMemories  MentorMemory[]
   notificationPreferences UserNotificationPreference?
   devices         UserDevice[]
   otpCodes        OtpCode[]
   emailDeliveries EmailDeliveryLog[]
+  complaints      Complaint[]
 }
 
 model MentorOnboardingAnswer {
@@ -124,6 +126,7 @@ model Mentor {
   notifications     Notification[]
   earnings          Earning[]
   chatThreads       ChatThread[]
+  complaints        Complaint[]
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 }
@@ -404,4 +407,29 @@ model UserMemory {
 enum AiRole {
   user
   assistant
+}
+
+model Complaint {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  mentorId    String
+  mentor      Mentor   @relation(fields: [mentorId], references: [id])
+  description String   @db.Text
+  proofUrl    String?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MentorOnboarding {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentQuestion Int      @default(0)
+  messages        Json     @default("[]")
+  answers         Json     @default("[]")
+  completed       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

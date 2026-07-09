@@ -17,6 +17,9 @@ prisma.$use(async (params, next) => {
       const isConnErr =
         err.message?.includes("Can't reach database") ||
         err.message?.includes('Unable to start a transaction') ||
+        err.message?.includes('ConnectionReset') ||
+        err.message?.includes('10054') ||
+        err.message?.includes('forcibly closed') ||
         err.code === 'P1001' || // Connection error
         err.code === 'P1002';   // Timed out connecting
       if (isConnErr && attempt < maxRetries) {

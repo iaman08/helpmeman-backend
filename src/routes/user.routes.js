@@ -28,5 +28,6 @@ router.get('/me/notification-preferences', user.getNotificationPrefs);
 router.put('/me/notification-preferences', user.updateNotificationPrefs);
 router.post('/me/devices', user.registerUserDevice);
 router.delete('/me/devices', user.removeUserDevice);
+router.post('/me/complaints', upload.single('proof'), user.submitComplaint);
 
 module.exports = router;

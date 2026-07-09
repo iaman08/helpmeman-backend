@@ -1,28 +1,34 @@
 const prisma = require('../config/prisma');
 const { hashPassword, comparePassword } = require('../utils/hash');
-const { uploadImage } = require('../services/upload.service');
+const { uploadImage, uploadDocument } = require('../services/upload.service');
 const { getUserNotifications, markAsRead, markAllReadForUser, deleteNotification, getNotificationAnalytics, registerDevice, removeDevice, updatePreferences, getPreferences } = require('../services/notification.service');
 const { saveUserToFirestore, getUserFromFirestore, isUsernameAvailable, setUsername } = require('../services/firestore.service');
 
 async function getProfile(req, res) {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true } });
-
-    // Enrich with Firestore data (username, etc.)
-    let firestoreData = null;
-    try { firestoreData = await getUserFromFirestore(req.user.id); } catch (e) { /* silent */ }
+    const [user, firestoreData, mentor] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true }
+      }),
+      getUserFromFirestore(req.user.id).catch(() => null),
+      prisma.mentor.findUnique({
+        where: { userId: req.user.id },
+        select: { id: true, approvalStatus: true, isActive: true }
+      }),
+    ]);
 
     const enrichedUser = {
       ...user,
-      onboardingRole: user.onboardingRole || null,
-      name: firestoreData?.name || user.name,
-      phone: firestoreData?.phone || user.phone || null,
-      avatar: firestoreData?.avatar || user.avatar || null,
+      onboardingRole: user?.onboardingRole || null,
+      name: firestoreData?.name || user?.name,
+      phone: firestoreData?.phone || user?.phone || null,
+      avatar: firestoreData?.avatar || user?.avatar || null,
       username: firestoreData?.username || null,
       currentRole: firestoreData?.currentRole || null,
     };
 
-    res.json({ user: enrichedUser });
+    res.json({ user: enrichedUser, mentor });
   } catch (e) { res.status(500).json({ error: 'Failed to get profile' }); }
 }
 
@@ -52,9 +58,14 @@ async function updateProfile(req, res) {
     // Sync updated profile to Firestore
     try { await saveUserToFirestore({ id: req.user.id, ...data }, extraData); } catch (e) { console.warn('Firestore sync failed (updateProfile):', e.message); }
 
-    // Fetch final enriched user
-    let firestoreData = null;
-    try { firestoreData = await getUserFromFirestore(req.user.id); } catch (e) { /* silent */ }
+    // Fetch final enriched user and mentor details in parallel
+    const [firestoreData, mentor] = await Promise.all([
+      getUserFromFirestore(req.user.id).catch(() => null),
+      prisma.mentor.findUnique({
+        where: { userId: req.user.id },
+        select: { id: true, approvalStatus: true, isActive: true }
+      }),
+    ]);
 
     const enrichedUser = {
       ...user,
@@ -66,7 +77,7 @@ async function updateProfile(req, res) {
       currentRole: firestoreData?.currentRole || null,
     };
 
-    res.json({ user: enrichedUser });
+    res.json({ user: enrichedUser, mentor });
   } catch (e) { console.error('Update failed:', e); res.status(500).json({ error: 'Update failed' }); }
 }
 
@@ -245,6 +256,41 @@ async function updateUsername(req, res) {
   } catch (e) { res.status(500).json({ error: 'Username update failed' }); }
 }
 
+async function submitComplaint(req, res) {
+  try {
+    const { mentorId, description } = req.body;
+    if (!mentorId) return res.status(400).json({ error: 'Mentor ID is required' });
+    if (!description) return res.status(400).json({ error: 'Description is required' });
+
+    // Validate mentor exists
+    const mentor = await prisma.mentor.findUnique({ where: { id: mentorId } });
+    if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
+
+    let proofUrl = null;
+    if (req.file) {
+      try {
+        proofUrl = await uploadDocument(req.file, 'complaints');
+      } catch (uploadErr) {
+        return res.status(400).json({ error: uploadErr.message || 'File upload failed' });
+      }
+    }
+
+    const complaint = await prisma.complaint.create({
+      data: {
+        userId: req.user.id,
+        mentorId,
+        description,
+        proofUrl,
+      },
+    });
+
+    res.status(201).json({ message: 'Complaint submitted successfully', complaint });
+  } catch (e) {
+    console.error('Failed to submit complaint:', e);
+    res.status(500).json({ error: 'Failed to submit complaint' });
+  }
+}
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -264,4 +310,5 @@ module.exports = {
   getUserNotificationAnalytics,
   checkUsername,
   updateUsername,
+  submitComplaint,
 };

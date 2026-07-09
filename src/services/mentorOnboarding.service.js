@@ -2,7 +2,7 @@ const Groq = require('groq-sdk');
 const prisma = require('../config/prisma');
 const config = require('../config/env');
 
-const MODEL = 'llama-3.3-70b-versatile';
+const MODEL = 'llama-3.1-8b-instant';
 
 const QUESTIONS = [
   {
@@ -172,20 +172,25 @@ function getQuestion(index, answers = []) {
 }
 
 async function getState(userId) {
-  const [user, profile, answers, mentor] = await Promise.all([
+  const [user, profile, onboarding, mentor] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true, role: true, onboardingRole: true } }),
     prisma.mentorProfile.findUnique({ where: { mentorId: userId } }),
-    prisma.mentorOnboardingAnswer.findMany({ where: { mentorId: userId }, orderBy: { createdAt: 'asc' } }),
+    prisma.mentorOnboarding.findUnique({ where: { userId } }),
     prisma.mentor.findUnique({ where: { userId }, select: { id: true, approvalStatus: true, isActive: true } }),
   ]);
-  const index = Math.min(profile?.currentQuestion || 0, QUESTIONS.length);
+
+  const answers = onboarding?.answers || [];
+  const index = onboarding?.currentQuestion || 0;
+  const status = onboarding?.completed ? 'COMPLETED' : (user?.onboardingRole ? 'IN_PROGRESS' : 'NOT_STARTED');
+
   return {
     role: user?.onboardingRole,
-    status: profile?.onboardingStatus || 'NOT_STARTED',
+    status,
     currentQuestion: index,
     totalQuestions: QUESTIONS.length,
     question: getQuestion(index, answers),
     answers,
+    messages: onboarding?.messages || [],
     profile,
     mentor,
   };
@@ -193,13 +198,34 @@ async function getState(userId) {
 
 async function selectRole(userId, role) {
   if (!['MENTOR', 'MENTEE'].includes(role)) throw new Error('Choose MENTOR or MENTEE');
-  await prisma.user.update({ where: { id: userId }, data: { onboardingRole: role, ...(role === 'MENTOR' ? { role: 'MENTOR' } : {}) } });
+  const user = await prisma.user.update({ where: { id: userId }, data: { onboardingRole: role, ...(role === 'MENTOR' ? { role: 'MENTOR' } : {}) } });
   if (role === 'MENTOR') {
-    await prisma.mentorProfile.upsert({
-      where: { mentorId: userId },
-      update: { onboardingStatus: 'IN_PROGRESS' },
-      create: { mentorId: userId, skills: [], expertiseTags: [], onboardingStatus: 'IN_PROGRESS' },
-    });
+    const firstName = user?.name ? user.name.split(' ')[0] : 'there';
+    const firstMsg = {
+      id: `msg_init`,
+      sender: 'RUTH',
+      text: `Hi ${firstName}, I’m Ruth. I’ll ask one thing at a time, remember every answer, and shape your mentor profile as we go.`,
+      createdAt: new Date().toISOString(),
+    };
+    const firstQuestionMsg = {
+      id: `msg_q0`,
+      sender: 'RUTH',
+      text: QUESTIONS[0].text,
+      createdAt: new Date().toISOString(),
+    };
+
+    await Promise.all([
+      prisma.mentorProfile.upsert({
+        where: { mentorId: userId },
+        update: { onboardingStatus: 'IN_PROGRESS' },
+        create: { mentorId: userId, skills: [], expertiseTags: [], onboardingStatus: 'IN_PROGRESS' },
+      }),
+      prisma.mentorOnboarding.upsert({
+        where: { userId },
+        update: { currentQuestion: 0, completed: false, messages: [firstMsg, firstQuestionMsg], answers: [] },
+        create: { userId, currentQuestion: 0, completed: false, messages: [firstMsg, firstQuestionMsg], answers: [] },
+      }),
+    ]);
   }
   return getState(userId);
 }
@@ -226,7 +252,8 @@ Write a natural response of at most 35 words. Briefly acknowledge one specific d
 }
 
 async function summarize(userId) {
-  const answers = await prisma.mentorOnboardingAnswer.findMany({ where: { mentorId: userId, skipped: false }, orderBy: { createdAt: 'asc' } });
+  const onboarding = await prisma.mentorOnboarding.findUnique({ where: { userId } });
+  const answers = (onboarding?.answers || []).filter(a => !a.skipped);
   const transcript = answers.map(a => `${a.questionKey}: ${a.answer}`).join('\n');
   let result;
   const fallbackProfile = () => {
@@ -316,42 +343,129 @@ async function summarize(userId) {
         experienceYears: result.experienceYears || null,
       },
     }),
+    prisma.mentorOnboarding.update({
+      where: { userId },
+      data: { completed: true, currentQuestion: QUESTIONS.length },
+    }),
   ]);
 
   return getState(userId);
 }
 
 async function answer(userId, answerText, skip = false) {
-  const state = await getState(userId);
+  const [state, onboarding] = await Promise.all([
+    getState(userId),
+    prisma.mentorOnboarding.findUnique({ where: { userId } }),
+  ]);
   if (state.role !== 'MENTOR') throw new Error('Mentor role required');
   if (!state.question) return state;
 
-  const answer = skip ? 'Skipped' : String(answerText || '').trim();
-  if (!skip && answer.length < 2) throw new Error('Please share a little more');
+  const answerVal = skip ? 'Skipped' : String(answerText || '').trim();
+  if (!skip && answerVal.length < 2) throw new Error('Please share a little more');
 
-  await prisma.$transaction([
-    prisma.mentorOnboardingAnswer.create({ data: { mentorId: userId, question: state.question.text, questionKey: state.question.key, answer, skipped: skip } }),
-    ...(!skip ? [prisma.mentorMemory.create({
-      data: {
-        mentorId: userId,
-        content: `${state.question.text}\n${answer}`,
-        metadata: { type: 'onboarding_answer', questionKey: state.question.key, phase: state.question.phase, inputType: state.question.type },
-        embedding: tinyEmbedding(answer),
-      },
-    })] : []),
-  ]);
+  const newAnswer = {
+    id: `ans_${Date.now()}`,
+    question: state.question.text,
+    questionKey: state.question.key,
+    answer: answerVal,
+    skipped: skip,
+  };
+  const updatedAnswers = [...state.answers, newAnswer];
+
+  const userMsg = {
+    id: `msg_u_${Date.now()}`,
+    sender: 'USER',
+    text: skip ? 'Skipped' : answerVal,
+    createdAt: new Date().toISOString(),
+  };
 
   const nextIndex = state.currentQuestion + 1;
-  await prisma.mentorProfile.update({ where: { mentorId: userId }, data: { currentQuestion: nextIndex, onboardingStatus: nextIndex >= QUESTIONS.length ? 'PROCESSING' : 'IN_PROGRESS' } });
 
   if (nextIndex >= QUESTIONS.length) {
+    const finalMsg = {
+      id: `msg_r_${Date.now()}`,
+      sender: 'RUTH',
+      text: "That's everything I need. I've shaped your mentor profile — it already feels distinctly yours.",
+      createdAt: new Date().toISOString(),
+    };
+
+    await prisma.mentorOnboarding.update({
+      where: { userId },
+      data: {
+        answers: updatedAnswers,
+        messages: [...(onboarding?.messages || []), userMsg, finalMsg],
+        currentQuestion: nextIndex,
+      },
+    });
+
+    if (!skip) {
+      try {
+        await prisma.mentorMemory.create({
+          data: {
+            mentorId: userId,
+            content: `${state.question.text}\n${answerVal}`,
+            metadata: { type: 'onboarding_answer', questionKey: state.question.key, phase: state.question.phase, inputType: state.question.type },
+            embedding: tinyEmbedding(answerVal),
+          },
+        });
+      } catch (err) {
+        console.warn('[Onboarding] Failed to save memory:', err.message);
+      }
+    }
+
     return { ...(await summarize(userId)), message: "That's everything I need. I've shaped your mentor profile — it already feels distinctly yours." };
   }
 
-  const allAnswers = [...state.answers, { questionKey: state.question.key, question: state.question.text, answer }];
-  const nextQuestion = getQuestion(nextIndex, allAnswers);
-  const message = skip ? nextQuestion.text : await humanTransition(state.question, answer, nextQuestion, allAnswers);
-  return { ...(await getState(userId)), message };
+  const nextQuestion = getQuestion(nextIndex, updatedAnswers);
+  const ruthResponse = skip ? nextQuestion.text : await humanTransition(state.question, answerVal, nextQuestion, updatedAnswers);
+
+  const ruthMsg = {
+    id: `msg_r_${Date.now()}`,
+    sender: 'RUTH',
+    text: ruthResponse,
+    createdAt: new Date().toISOString(),
+  };
+
+  await Promise.all([
+    prisma.mentorOnboarding.update({
+      where: { userId },
+      data: {
+        currentQuestion: nextIndex,
+        answers: updatedAnswers,
+        messages: [...(onboarding?.messages || []), userMsg, ruthMsg],
+      },
+    }),
+    prisma.mentorProfile.update({
+      where: { mentorId: userId },
+      data: {
+        currentQuestion: nextIndex,
+        onboardingStatus: 'IN_PROGRESS',
+      },
+    }),
+    ...(!skip ? [
+      prisma.mentorMemory.create({
+        data: {
+          mentorId: userId,
+          content: `${state.question.text}\n${answerVal}`,
+          metadata: { type: 'onboarding_answer', questionKey: state.question.key, phase: state.question.phase, inputType: state.question.type },
+          embedding: tinyEmbedding(answerVal),
+        },
+      }).catch(err => console.warn('[Onboarding] Failed to save memory:', err.message))
+    ] : []),
+  ]);
+
+  return {
+    role: state.role,
+    status: nextIndex >= QUESTIONS.length ? 'COMPLETED' : 'IN_PROGRESS',
+    currentQuestion: nextIndex,
+    totalQuestions: QUESTIONS.length,
+    question: nextQuestion,
+    answers: updatedAnswers,
+    messages: [...(onboarding?.messages || []), userMsg, ruthMsg],
+    profile: state.profile,
+    mentor: state.mentor,
+    message: ruthResponse,
+  };
 }
 
 module.exports = { QUESTIONS, getState, selectRole, answer };

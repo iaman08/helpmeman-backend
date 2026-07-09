@@ -2,6 +2,26 @@ const firebaseAdmin = require('../config/firebase');
 
 const db = firebaseAdmin.firestore();
 
+const FIRESTORE_TIMEOUT = parseInt(process.env.FIRESTORE_TIMEOUT, 10) || 1200; // 1.2s default timeout
+
+// Helper to wrap Firestore promises with a timeout
+function withTimeout(promise, operationName) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Firestore operation '${operationName}' timed out after ${FIRESTORE_TIMEOUT}ms`));
+    }, FIRESTORE_TIMEOUT);
+  });
+
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timeoutId);
+      return res;
+    }),
+    timeoutPromise
+  ]);
+}
+
 /**
  * Save or update a user document in Firestore.
  * Collection: "users", Document ID = Prisma user.id
@@ -28,7 +48,7 @@ async function saveUserToFirestore(user, extraData = {}) {
     }
   });
 
-  await docRef.set(data, { merge: true });
+  await withTimeout(docRef.set(data, { merge: true }), 'saveUserToFirestore');
   return data;
 }
 
@@ -63,7 +83,7 @@ async function saveMentorToFirestore(mentor) {
     updatedAt: new Date().toISOString(),
   };
 
-  await docRef.set(data, { merge: true });
+  await withTimeout(docRef.set(data, { merge: true }), 'saveMentorToFirestore');
   return data;
 }
 
@@ -71,7 +91,7 @@ async function saveMentorToFirestore(mentor) {
  * Get a user document from Firestore by user ID.
  */
 async function getUserFromFirestore(userId) {
-  const doc = await db.collection('users').doc(userId).get();
+  const doc = await withTimeout(db.collection('users').doc(userId).get(), 'getUserFromFirestore');
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
 }
@@ -80,7 +100,7 @@ async function getUserFromFirestore(userId) {
  * Get a mentor document from Firestore by mentor ID.
  */
 async function getMentorFromFirestore(mentorId) {
-  const doc = await db.collection('mentors').doc(mentorId).get();
+  const doc = await withTimeout(db.collection('mentors').doc(mentorId).get(), 'getMentorFromFirestore');
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
 }
@@ -91,11 +111,10 @@ async function getMentorFromFirestore(mentorId) {
  */
 async function isUsernameAvailable(username) {
   if (!username) return false;
-  const snapshot = await db
-    .collection('users')
-    .where('username', '==', username.toLowerCase())
-    .limit(1)
-    .get();
+  const snapshot = await withTimeout(
+    db.collection('users').where('username', '==', username.toLowerCase()).limit(1).get(),
+    'isUsernameAvailable'
+  );
   return snapshot.empty;
 }
 
@@ -114,11 +133,10 @@ async function setUsername(userId, username) {
   const normalizedUsername = username.toLowerCase();
 
   // Check if username is taken by another user
-  const snapshot = await db
-    .collection('users')
-    .where('username', '==', normalizedUsername)
-    .limit(1)
-    .get();
+  const snapshot = await withTimeout(
+    db.collection('users').where('username', '==', normalizedUsername).limit(1).get(),
+    'setUsername_check'
+  );
 
   if (!snapshot.empty) {
     const existingDoc = snapshot.docs[0];
@@ -127,9 +145,12 @@ async function setUsername(userId, username) {
     }
   }
 
-  await db.collection('users').doc(userId).set(
-    { username: normalizedUsername, updatedAt: new Date().toISOString() },
-    { merge: true }
+  await withTimeout(
+    db.collection('users').doc(userId).set(
+      { username: normalizedUsername, updatedAt: new Date().toISOString() },
+      { merge: true }
+    ),
+    'setUsername_save'
   );
 
   return { success: true };
