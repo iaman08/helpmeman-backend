@@ -1,0 +1,440 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id              String         @id @default(cuid())
+  name            String
+  email           String         @unique
+  passwordHash    String
+  phone           String?
+  avatar          String?
+  role            Role           @default(USER)
+  isEmailVerified Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  bookings        Booking[]
+  reviews         Review[]
+  notifications   Notification[]
+  refreshTokens   RefreshToken[]
+  chatThreads     ChatThread[]
+  mentor          Mentor?
+  aiSessions      AiSession[]
+  userMemory      UserMemory?
+  onboardingRole String?
+  mentorOnboardingAnswers MentorOnboardingAnswer[]
+  mentorOnboarding        MentorOnboarding?
+  mentorProfile   MentorProfile?
+  mentorMemories  MentorMemory[]
+  notificationPreferences UserNotificationPreference?
+  devices         UserDevice[]
+  otpCodes        OtpCode[]
+  emailDeliveries EmailDeliveryLog[]
+  complaints      Complaint[]
+  username        String?  @unique
+  currentRole     String?
+
+  @@index([username])
+}
+
+model MentorOnboardingAnswer {
+  id        String   @id @default(cuid())
+  mentorId  String
+  mentor    User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  question  String   @db.Text
+  answer    String   @db.Text
+  questionKey String
+  skipped   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([mentorId, createdAt])
+}
+
+model MentorProfile {
+  id                 String   @id @default(cuid())
+  mentorId           String   @unique
+  mentor             User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  name               String?
+  preferredName      String?
+  role               String?
+  company            String?
+  location           String?
+  skills             String[]
+  expertiseTags      String[]
+  experienceYears    Int?
+  bio                String?  @db.Text
+  mentoringStyle     Json?
+  personality        Json?
+  goals              String?  @db.Text
+  summary            String?  @db.Text
+  onboardingStatus   String   @default("NOT_STARTED")
+  currentQuestion    Int      @default(0)
+  completedAt        DateTime?
+  updatedAt          DateTime @updatedAt
+}
+
+model MentorMemory {
+  id        String   @id @default(cuid())
+  mentorId  String
+  mentor    User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  source    String   @default("onboarding")
+  content   String   @db.Text
+  metadata  Json?
+  embedding Json?    // provider-neutral vector; can be migrated to pgvector later
+  createdAt DateTime @default(now())
+
+  @@index([mentorId, createdAt])
+}
+
+model Mentor {
+  id                String           @id @default(cuid())
+  userId            String           @unique
+  user              User             @relation(fields: [userId], references: [id])
+  displayName       String
+  bio               String           @db.Text
+  avatar            String?
+  institutionType   InstitutionType
+  institutionName   String
+  institutionEmail  String           @unique
+  department        String?
+  graduationYear    Int?
+  currentRole       String?
+  company           String?
+  linkedinUrl       String?
+  expertise         String[]
+  categoryId        String
+  category          Category         @relation(fields: [categoryId], references: [id])
+  approvalStatus    ApprovalStatus   @default(PENDING)
+  rejectionReason   String?
+  isActive          Boolean          @default(false)
+  pricePerSession   Int
+  sessionDuration   Int              @default(30)
+  googleCalendarId  String?
+  totalSessions     Int              @default(0)
+  rating            Float            @default(0)
+  location          String?
+  activeStatus      String?
+  averageResponseTime String?
+  languages         String?
+  experienceYears   Int?
+  isOnline          Boolean          @default(false)
+  availabilities    Availability[]
+  bookings          Booking[]
+  reviews           Review[]
+  verificationDocs  VerificationDoc[]
+  notifications     Notification[]
+  earnings          Earning[]
+  chatThreads       ChatThread[]
+  complaints        Complaint[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  icon        String?
+  description String?
+  isActive    Boolean  @default(true)
+  mentors     Mentor[]
+}
+
+model Availability {
+  id        String  @id @default(cuid())
+  mentorId  String
+  mentor    Mentor  @relation(fields: [mentorId], references: [id])
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  isActive  Boolean @default(true)
+}
+
+model Booking {
+  id                 String        @id @default(cuid())
+  userId             String
+  user               User          @relation(fields: [userId], references: [id])
+  mentorId           String
+  mentor             Mentor        @relation(fields: [mentorId], references: [id])
+  scheduledAt        DateTime
+  durationMinutes    Int           @default(30)
+  status             BookingStatus @default(PENDING)
+  meetLink           String?
+  googleEventId      String?
+  paymentId          String?
+  paymentStatus      PaymentStatus @default(UNPAID)
+  amountPaid         Int
+  userNotes          String?
+  mentorNotes        String?
+  cancelledBy        String?
+  cancellationReason String?
+  review             Review?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  mentorId  String
+  mentor    Mentor   @relation(fields: [mentorId], references: [id])
+  rating    Int
+  comment   String?  @db.Text
+  isVisible Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model VerificationDoc {
+  id         String   @id @default(cuid())
+  mentorId   String
+  mentor     Mentor   @relation(fields: [mentorId], references: [id])
+  docType    String
+  fileUrl    String
+  uploadedAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  mentorId  String?
+  mentor    Mentor?  @relation(fields: [mentorId], references: [id])
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  emailSent Boolean  @default(false)
+  pushSent  Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@index([mentorId, isRead, createdAt])
+  @@index([type, createdAt])
+}
+
+model UserNotificationPreference {
+  userId              String  @id
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailNotifications  Boolean @default(true)
+  pushNotifications   Boolean @default(true)
+  marketingEmails     Boolean @default(false)
+  accountUpdates      Boolean @default(true)
+  messages            Boolean @default(true)
+  mentorUpdates       Boolean @default(true)
+  updatedAt           DateTime @updatedAt
+}
+
+model UserDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fcmToken   String   @unique
+  deviceType String   @default("web")
+  lastActive DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId, lastActive])
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  email     String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  purpose   String   @default("verify")
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  lastSentAt DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([email, purpose])
+}
+
+model EmailDeliveryLog {
+  id             String   @id @default(cuid())
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  toEmail        String
+  subject        String
+  templateType   String
+  status         String   @default("pending")
+  resendId       String?
+  errorMessage   String?
+  notificationId String?
+  retryCount     Int      @default(0)
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model Earning {
+  id        String    @id @default(cuid())
+  mentorId  String
+  mentor    Mentor    @relation(fields: [mentorId], references: [id])
+  bookingId String
+  amount    Int
+  status    String    @default("PENDING")
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model ChatThread {
+  id                 String       @id @default(cuid())
+  userId             String
+  user               User         @relation(fields: [userId], references: [id])
+  mentorId           String
+  mentor             Mentor       @relation(fields: [mentorId], references: [id])
+  status             ThreadStatus @default(OPEN)
+  userMsgCount       Int          @default(0)
+  mentorMsgCount     Int          @default(0)
+  isLockedForBooking Boolean      @default(false)
+  bookingId          String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  messages           ChatMessage[]
+
+  @@unique([userId, mentorId])
+}
+
+model ChatMessage {
+  id         String     @id @default(cuid())
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id])
+  senderId   String
+  senderRole SenderRole
+  body       String     @db.Text
+  isRead     Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+}
+
+enum ThreadStatus {
+  OPEN
+  LOCKED
+  BOOKED
+  CLOSED
+}
+
+enum SenderRole {
+  USER
+  MENTOR
+}
+
+enum Role {
+  USER
+  MENTOR
+  ADMIN
+}
+
+enum InstitutionType {
+  COLLEGE
+  COMPANY
+  STARTUP
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+// ─── AI Chat: Sessions, Messages, and User Memory ───────────────────
+
+model AiSession {
+  id               String       @id @default(cuid())
+  userId           String
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String?
+  summary          String?      @db.Text  // compressed summary ≤300 tokens
+  summaryUpdatedAt DateTime?
+  messageCount     Int          @default(0)
+  endedAt          DateTime?
+  bookingId        String?
+  sessionType      String       @default("general")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  messages         AiMessage[]
+}
+
+model AiMessage {
+  id        String    @id @default(cuid())
+  sessionId String
+  session   AiSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      AiRole
+  content   String    @db.Text
+  createdAt DateTime  @default(now())
+}
+
+model UserMemory {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memorySummary String   @db.Text  // rolling distilled memory ≤150 tokens
+  version       Int      @default(1)
+  updatedAt     DateTime @updatedAt
+}
+
+enum AiRole {
+  user
+  assistant
+}
+
+model Complaint {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  mentorId    String
+  mentor      Mentor   @relation(fields: [mentorId], references: [id])
+  description String   @db.Text
+  proofUrl    String?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MentorOnboarding {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentQuestion Int      @default(0)
+  messages        Json     @default("[]")
+  answers         Json     @default("[]")
+  completed       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
