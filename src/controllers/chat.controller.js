@@ -21,10 +21,9 @@ const THREAD_LIST_INCLUDE = {
   messages: {
     orderBy: { createdAt: 'desc' },
     take: 1,
-    // Note: do NOT filter by deletedAt here — that field only exists after schema migration
   },
   user: { select: { id: true, name: true, username: true, email: true, avatar: true, role: true } },
-  mentor: { select: { displayName: true, avatar: true, id: true } },
+  mentor: { select: { displayName: true, avatar: true, id: true, userId: true } },
 };
 
 // ─── POST /chat/threads ───────────────────────────────────────────────────────
@@ -194,6 +193,10 @@ async function postMessage(req, res) {
       emitTo(req, `chat:${req.params.threadId}`, 'thread_locked', {
         threadId: req.params.threadId,
         reason: 'MESSAGE_LIMIT_REACHED',
+      });
+    } else if (thread.status === 'LOCKED' && result.thread.status === 'OPEN') {
+      emitTo(req, `chat:${req.params.threadId}`, 'thread_unlocked', {
+        threadId: req.params.threadId,
       });
     }
 

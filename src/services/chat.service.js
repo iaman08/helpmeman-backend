@@ -66,10 +66,13 @@ async function sendMessage(threadId, senderId, senderRole, body, isRecipientOnli
 
   // Lock and limit checks ONLY apply to user (student/mentee), not mentors
   if (isUser) {
-    if (thread.status === 'LOCKED' || thread.status === 'CLOSED') {
+    if (thread.status === 'CLOSED') {
+      const err = new Error('THREAD_CLOSED'); err.status = 403; throw err;
+    }
+    if (thread.status === 'LOCKED' && thread.mentorMsgCount === 0) {
       const err = new Error('THREAD_LOCKED'); err.status = 403; throw err;
     }
-    if (thread.userMsgCount >= 3) {
+    if (thread.userMsgCount >= 3 && thread.mentorMsgCount === 0) {
       const err = new Error('MESSAGE_LIMIT_REACHED'); err.status = 403; throw err;
     }
   }
@@ -89,6 +92,22 @@ async function sendMessage(threadId, senderId, senderRole, body, isRecipientOnli
   }
 
   const countField = isUser ? 'userMsgCount' : 'mentorMsgCount';
+  
+  let statusToSet = thread.status;
+  let isLockedForBookingToSet = thread.isLockedForBooking;
+
+  if (isUser) {
+    if (thread.userMsgCount + 1 >= 3 && thread.mentorMsgCount === 0) {
+      statusToSet = 'LOCKED';
+      isLockedForBookingToSet = true;
+    }
+  } else {
+    // Mentor replies
+    if (thread.status === 'LOCKED' || thread.mentorMsgCount === 0) {
+      statusToSet = 'OPEN';
+      isLockedForBookingToSet = false;
+    }
+  }
 
   const [message, updatedThread] = await prisma.$transaction([
     prisma.chatMessage.create({ data: messageData, ...getMessageInclude() }),
@@ -96,8 +115,8 @@ async function sendMessage(threadId, senderId, senderRole, body, isRecipientOnli
       where: { id: threadId },
       data: {
         [countField]: { increment: 1 },
-        status: isUser && thread.userMsgCount + 1 >= 3 ? 'LOCKED' : thread.status,
-        isLockedForBooking: isUser && thread.userMsgCount + 1 >= 3 ? true : thread.isLockedForBooking,
+        status: statusToSet,
+        isLockedForBooking: isLockedForBookingToSet,
         updatedAt: new Date(),
       },
     }),

@@ -59,6 +59,14 @@ async function updateProfile(req, res) {
       select: { id: true, approvalStatus: true, isActive: true }
     });
 
+    // If they are a mentor and updated their avatar, sync it to Mentor model
+    if (req.file && mentor) {
+      await prisma.mentor.update({
+        where: { userId: req.user.id },
+        data: { avatar: data.avatar }
+      }).catch(err => console.error('[PROFILE] Sync to Mentor avatar failed:', err.message));
+    }
+
     const enrichedUser = {
       ...user,
       onboardingRole: user.onboardingRole || null,
