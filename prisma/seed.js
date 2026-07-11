@@ -222,6 +222,42 @@ async function main() {
 
   for (const md of mentorProfiles) {
     const { categorySlug, ...mentorFields } = md.mentor;
+
+    // Dynamically parse location e.g. "Bangalore, India" or "San Francisco, USA"
+    let country = 'India';
+    let state = '';
+    let city = '';
+    if (mentorFields.location) {
+      const parts = mentorFields.location.split(',').map(s => s.trim());
+      if (parts.length >= 2) {
+        city = parts[0];
+        country = parts[parts.length - 1];
+        state = parts.length === 3 ? parts[1] : '';
+      } else {
+        city = mentorFields.location;
+      }
+    }
+
+    // Dynamically parse languages e.g. "Speaks English and Hindi" -> ["English", "Hindi"]
+    let languagesArray = ['English'];
+    if (mentorFields.languages) {
+      const cleaned = mentorFields.languages.replace(/Speaks\s+/i, '');
+      const parts = cleaned.split(/,|\band\b/).map(s => s.trim()).filter(Boolean);
+      if (parts.length > 0) {
+        languagesArray = parts;
+      }
+    }
+
+    const finalMentorFields = {
+      ...mentorFields,
+      country,
+      state: state || null,
+      city,
+      locality: null,
+      postalCode: null,
+      languages: languagesArray
+    };
+
     const user = await prisma.user.upsert({
       where: { email: md.user.email },
       update: {
@@ -244,7 +280,7 @@ async function main() {
       await prisma.mentor.create({
         data: {
           userId: user.id,
-          ...mentorFields,
+          ...finalMentorFields,
           categoryId: catMap[categorySlug],
           approvalStatus: 'APPROVED',
           isActive: true,
@@ -254,7 +290,7 @@ async function main() {
       await prisma.mentor.update({
         where: { id: existing.id },
         data: {
-          ...mentorFields,
+          ...finalMentorFields,
           categoryId: catMap[categorySlug],
         },
       });

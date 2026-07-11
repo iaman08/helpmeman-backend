@@ -1,41 +1,135 @@
-const { verifyAccessToken } = require('../utils/jwt');
+const authService = require('../services/auth.service');
+const { updateUserPresence } = require('../services/presence.service');
+
+// Per-thread typing timeout handles (clears if user stops sending events)
+const typingTimers = new Map(); // key: `${threadId}:${userId}`
 
 function setupChatSocket(io) {
-  io.use((socket, next) => {
-    const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+  io.onlineUsers = io.onlineUsers || new Set();
+
+  // ── Authentication middleware ───────────────────────────────────────────────
+  io.use(async (socket, next) => {
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.split(' ')[1];
     if (!token) return next(new Error('Authentication required'));
     try {
-      const decoded = verifyAccessToken(token);
-      socket.userId = decoded.userId;
-      socket.userRole = decoded.role;
+      const user = await authService.verifySession(token);
+      socket.userId = user.id;
+      socket.userRole = user.role;
       next();
-    } catch (e) { next(new Error('Invalid token')); }
+    } catch (e) {
+      console.error('[SOCKET] Auth error:', e.message);
+      next(new Error('Invalid token'));
+    }
   });
 
   io.on('connection', (socket) => {
-    console.log(`Socket connected: ${socket.userId}`);
+    const { userId } = socket;
+    io.onlineUsers.add(userId);
+    socket.join(`user:${userId}`);
+    console.log(`[SOCKET] Connected: ${userId} (${socket.id})`);
 
+    // Mark ONLINE immediately
+    updateUserPresence(userId, 'ONLINE').catch(() => {});
+
+    // Broadcast presence to all connected clients
+    io.emit('presence_update', { userId, status: 'ONLINE' });
+
+    // ── Activity heartbeat from client ──────────────────────────────────────
+    socket.on('user_activity', () => {
+      updateUserPresence(userId).catch(() => {});
+    });
+
+    // ── Join a thread room ──────────────────────────────────────────────────
     socket.on('join_thread', ({ threadId }) => {
+      if (!threadId) return;
       socket.join(`chat:${threadId}`);
-      console.log(`User ${socket.userId} joined chat:${threadId}`);
+      console.log(`[SOCKET] ${userId} joined chat:${threadId}`);
     });
 
+    // ── Leave a thread room ─────────────────────────────────────────────────
     socket.on('leave_thread', ({ threadId }) => {
+      if (!threadId) return;
       socket.leave(`chat:${threadId}`);
+      clearTypingTimer(userId, threadId);
+      socket.to(`chat:${threadId}`).emit('user_stop_typing', { userId });
     });
 
+    // ── Typing indicator ────────────────────────────────────────────────────
     socket.on('typing', ({ threadId }) => {
-      socket.to(`chat:${threadId}`).emit('user_typing', { userId: socket.userId });
+      if (!threadId) return;
+      // Broadcast to others in the room (not back to sender)
+      socket.to(`chat:${threadId}`).emit('user_typing', { userId });
+      // Auto-stop after 4s of inactivity
+      resetTypingTimer(io, userId, threadId);
     });
 
     socket.on('stop_typing', ({ threadId }) => {
-      socket.to(`chat:${threadId}`).emit('user_stop_typing', { userId: socket.userId });
+      if (!threadId) return;
+      clearTypingTimer(userId, threadId);
+      socket.to(`chat:${threadId}`).emit('user_stop_typing', { userId });
     });
 
+    // ── Delivery acknowledgment ─────────────────────────────────────────────
+    // Client sends this when it receives a message while in the thread room
+    socket.on('message_delivered', ({ threadId, messageId }) => {
+      if (!threadId || !messageId) return;
+      // Notify the thread that the message was delivered (to update sender's UI)
+      socket.to(`chat:${threadId}`).emit('message_status_update', {
+        messageId,
+        status: 'DELIVERED',
+      });
+    });
+
+    // ── Disconnect ──────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
-      console.log(`Socket disconnected: ${socket.userId}`);
+      // Check if this user has any other active sockets
+      const activeSockets = io.sockets.adapter.rooms.get(`user:${userId}`);
+      const remainingCount = activeSockets ? activeSockets.size : 0;
+
+      if (remainingCount === 0) {
+        io.onlineUsers.delete(userId);
+        console.log(`[SOCKET] Fully disconnected: ${userId}`);
+        updateUserPresence(userId, 'OFFLINE').catch(() => {});
+        io.emit('presence_update', { userId, status: 'OFFLINE' });
+
+        // Clear all typing timers for this user
+        for (const [key] of typingTimers) {
+          if (key.endsWith(`:${userId}`)) {
+            const threadId = key.split(':')[0];
+            clearTypingTimer(userId, threadId);
+            io.to(`chat:${threadId}`).emit('user_stop_typing', { userId });
+          }
+        }
+      } else {
+        console.log(`[SOCKET] Tab closed, user ${userId} has ${remainingCount} active tabs`);
+      }
     });
   });
+}
+
+// ── Typing timer helpers ────────────────────────────────────────────────────
+function timerKey(userId, threadId) {
+  return `${threadId}:${userId}`;
+}
+
+function resetTypingTimer(io, userId, threadId) {
+  const key = timerKey(userId, threadId);
+  if (typingTimers.has(key)) clearTimeout(typingTimers.get(key));
+  const timer = setTimeout(() => {
+    typingTimers.delete(key);
+    io.to(`chat:${threadId}`).emit('user_stop_typing', { userId });
+  }, 4000);
+  typingTimers.set(key, timer);
+}
+
+function clearTypingTimer(userId, threadId) {
+  const key = timerKey(userId, threadId);
+  if (typingTimers.has(key)) {
+    clearTimeout(typingTimers.get(key));
+    typingTimers.delete(key);
+  }
 }
 
 module.exports = { setupChatSocket };

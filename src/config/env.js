@@ -31,10 +31,10 @@ module.exports = {
     keySecret: process.env.RAZORPAY_KEY_SECRET,
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
   },
-  cloudinary: {
-    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-    apiKey: process.env.CLOUDINARY_API_KEY,
-    apiSecret: process.env.CLOUDINARY_API_SECRET,
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    bucketName: process.env.SUPABASE_STORAGE_BUCKET || 'helpmeman',
   },
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
@@ -57,5 +57,12 @@ module.exports = {
   gmail: {
     user: process.env.GMAIL_USER,
     appPassword: process.env.GMAIL_APP_PASSWORD,
+  },
+  // Web Push (VAPID) — replaces Firebase Cloud Messaging
+  // Generate keys once with: npx web-push generate-vapid-keys
+  vapid: {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject: process.env.VAPID_SUBJECT || 'mailto:noreply@helpmeman.com',
   },
 };

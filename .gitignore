@@ -9,3 +9,5 @@ build/
 coverage/
 *.log
 helpmeman-b1b7e-firebase-adminsdk-fbsvc-f0f3a57989.json
+db_columns.txt
+prisma_generated.flag

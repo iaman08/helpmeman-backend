@@ -2,16 +2,15 @@ const prisma = require('../config/prisma');
 const { hashPassword, comparePassword } = require('../utils/hash');
 const { uploadImage, uploadDocument } = require('../services/upload.service');
 const { getUserNotifications, markAsRead, markAllReadForUser, deleteNotification, getNotificationAnalytics, registerDevice, removeDevice, updatePreferences, getPreferences } = require('../services/notification.service');
-const { saveUserToFirestore, getUserFromFirestore, isUsernameAvailable, setUsername } = require('../services/firestore.service');
+const { saveUserProfile, getUserProfile, isUsernameAvailable, setUsername } = require('../services/userProfile.service');
 
 async function getProfile(req, res) {
   try {
-    const [user, firestoreData, mentor] = await Promise.all([
+    const [user, mentor] = await Promise.all([
       prisma.user.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true }
+        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true, username: true, currentRole: true }
       }),
-      getUserFromFirestore(req.user.id).catch(() => null),
       prisma.mentor.findUnique({
         where: { userId: req.user.id },
         select: { id: true, approvalStatus: true, isActive: true }
@@ -21,11 +20,8 @@ async function getProfile(req, res) {
     const enrichedUser = {
       ...user,
       onboardingRole: user?.onboardingRole || null,
-      name: firestoreData?.name || user?.name,
-      phone: firestoreData?.phone || user?.phone || null,
-      avatar: firestoreData?.avatar || user?.avatar || null,
-      username: firestoreData?.username || null,
-      currentRole: firestoreData?.currentRole || null,
+      username: user?.username || null,
+      currentRole: user?.currentRole || null,
     };
 
     res.json({ user: enrichedUser, mentor });
@@ -38,10 +34,8 @@ async function updateProfile(req, res) {
     const data = {};
     if (name) data.name = name;
     if (phone !== undefined) data.phone = phone;
+    if (currentRole !== undefined) data.currentRole = currentRole;
     if (req.file) data.avatar = await uploadImage(req.file, 'avatars');
-    
-    // Update basic info in Postgres
-    const user = await prisma.user.update({ where: { id: req.user.id }, data, select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true } });
 
     // Handle Username Uniqueness (if requested)
     if (username) {
@@ -49,32 +43,35 @@ async function updateProfile(req, res) {
       if (!usernameResult.success) {
         return res.status(400).json({ error: usernameResult.error });
       }
+      data.username = username.toLowerCase().trim();
     }
 
-    // Prepare Firestore Extra Data
-    const extraData = {};
-    if (currentRole !== undefined) extraData.currentRole = currentRole;
+    // Update all fields in Postgres (single source of truth)
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data,
+      select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, username: true, currentRole: true }
+    });
 
-    // Sync updated profile to Firestore
-    try { await saveUserToFirestore({ id: req.user.id, ...data }, extraData); } catch (e) { console.warn('Firestore sync failed (updateProfile):', e.message); }
+    // Fetch mentor details
+    const mentor = await prisma.mentor.findUnique({
+      where: { userId: req.user.id },
+      select: { id: true, approvalStatus: true, isActive: true }
+    });
 
-    // Fetch final enriched user and mentor details in parallel
-    const [firestoreData, mentor] = await Promise.all([
-      getUserFromFirestore(req.user.id).catch(() => null),
-      prisma.mentor.findUnique({
+    // If they are a mentor and updated their avatar, sync it to Mentor model
+    if (req.file && mentor) {
+      await prisma.mentor.update({
         where: { userId: req.user.id },
-        select: { id: true, approvalStatus: true, isActive: true }
-      }),
-    ]);
+        data: { avatar: data.avatar }
+      }).catch(err => console.error('[PROFILE] Sync to Mentor avatar failed:', err.message));
+    }
 
     const enrichedUser = {
       ...user,
       onboardingRole: user.onboardingRole || null,
-      name: firestoreData?.name || user.name,
-      phone: firestoreData?.phone || user.phone || null,
-      avatar: firestoreData?.avatar || user.avatar || null,
-      username: firestoreData?.username || null,
-      currentRole: firestoreData?.currentRole || null,
+      username: user.username || null,
+      currentRole: user.currentRole || null,
     };
 
     res.json({ user: enrichedUser, mentor });
@@ -206,18 +203,25 @@ async function updateNotificationPrefs(req, res) {
 
 async function registerUserDevice(req, res) {
   try {
-    const { fcmToken, deviceType = 'web' } = req.body;
-    if (!fcmToken) return res.status(400).json({ error: 'FCM token required' });
-    const device = await registerDevice(req.user.id, fcmToken, deviceType);
+    const { pushSubscription, fcmToken, deviceType = 'web' } = req.body;
+
+    // Support both Web Push subscriptions (new) and FCM tokens (legacy)
+    if (!pushSubscription && !fcmToken) {
+      return res.status(400).json({ error: 'Push subscription or FCM token required' });
+    }
+
+    const tokenValue = fcmToken || (typeof pushSubscription === 'string' ? pushSubscription : JSON.stringify(pushSubscription));
+    const device = await registerDevice(req.user.id, tokenValue, deviceType);
     res.json({ device });
   } catch (e) { res.status(500).json({ error: 'Failed to register device' }); }
 }
 
 async function removeUserDevice(req, res) {
   try {
-    const { fcmToken } = req.body;
-    if (!fcmToken) return res.status(400).json({ error: 'FCM token required' });
-    await removeDevice(req.user.id, fcmToken);
+    const { pushSubscription, fcmToken } = req.body;
+    const tokenValue = fcmToken || (typeof pushSubscription === 'string' ? pushSubscription : JSON.stringify(pushSubscription));
+    if (!tokenValue) return res.status(400).json({ error: 'Push subscription or FCM token required' });
+    await removeDevice(req.user.id, tokenValue);
     res.json({ message: 'Device removed' });
   } catch (e) { res.status(500).json({ error: 'Failed to remove device' }); }
 }

@@ -1,15 +1,20 @@
-const cloudinary = require('cloudinary').v2;
+const { createClient } = require('@supabase/supabase-js');
 const config = require('../config/env');
 
-cloudinary.config({
-  cloud_name: config.cloudinary.cloudName,
-  api_key: config.cloudinary.apiKey,
-  api_secret: config.cloudinary.apiSecret,
-});
+const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
+const bucketName = config.supabase.bucketName || 'helpmeman';
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const ALLOWED_DOC_TYPES = [...ALLOWED_IMAGE_TYPES, 'application/pdf'];
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_DOC_TYPES = [
+  ...ALLOWED_IMAGE_TYPES,
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/zip',
+  'application/x-zip-compressed',
+  'text/plain',
+];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function validateFile(file, allowedTypes = ALLOWED_IMAGE_TYPES) {
   if (!file) throw new Error('No file provided');
@@ -19,45 +24,48 @@ function validateFile(file, allowedTypes = ALLOWED_IMAGE_TYPES) {
   }
 }
 
+async function uploadFileToSupabase(file, folder) {
+  const fileExt = file.originalname.split('.').pop();
+  const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+  
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .upload(fileName, file.buffer, {
+      contentType: file.mimetype,
+      upsert: true,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  const { data: urlData } = supabase.storage
+    .from(bucketName)
+    .getPublicUrl(fileName);
+
+  return urlData.publicUrl;
+}
+
 async function uploadImage(file, folder = 'avatars') {
   validateFile(file, ALLOWED_IMAGE_TYPES);
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: `helpmeman/${folder}`,
-        transformation: [
-          { width: 500, height: 500, crop: 'fill', gravity: 'face' },
-          { quality: 'auto', fetch_format: 'auto' },
-        ],
-      },
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result.secure_url);
-      }
-    );
-    stream.end(file.buffer);
-  });
+  return uploadFileToSupabase(file, folder);
 }
 
 async function uploadDocument(file, folder = 'docs') {
   validateFile(file, ALLOWED_DOC_TYPES);
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: `helpmeman/${folder}`,
-        resource_type: 'auto',
-      },
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result.secure_url);
-      }
-    );
-    stream.end(file.buffer);
-  });
+  return uploadFileToSupabase(file, folder);
 }
 
-async function deleteFile(publicId) {
-  return cloudinary.uploader.destroy(publicId);
+async function deleteFile(fileUrl) {
+  try {
+    if (!fileUrl) return;
+    const urlParts = fileUrl.split(`/storage/v1/object/public/${bucketName}/`);
+    if (urlParts.length < 2) return;
+    const filePath = urlParts[1];
+    await supabase.storage.from(bucketName).remove([filePath]);
+  } catch (error) {
+    console.error('Failed to delete file from Supabase Storage:', error);
+  }
 }
 
 module.exports = { uploadImage, uploadDocument, deleteFile, validateFile };

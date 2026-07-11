@@ -110,7 +110,7 @@ async function main() {
   const mentorData = [
     { title: 'Core Professional Info', desc: 'Display Name, detailed bio, summary of professional background, skills, and areas of mentoring expertise.' },
     { title: 'Verification & Credentials', desc: 'Institution Type (College/Company/Startup), name of organization, verified institutional/work email, department, graduation year, current role, and LinkedIn URL.' },
-    { title: 'Identity Documents', desc: 'Uploaded verification files (e.g., credentials, degrees, company ID cards) hosted securely on Cloudinary to prove background credentials.' },
+    { title: 'Identity Documents', desc: 'Uploaded verification files (e.g., credentials, degrees, company ID cards) hosted securely on Supabase Storage to prove background credentials.' },
     { title: 'Availability & Rates', desc: 'Pricing per session, default session duration (default 30 mins), and weekly recurring availability days and time-slots.' },
     { title: 'Onboarding & Screening', desc: 'Custom responses submitted during the mentor screening questionnaire, onboarding status, and administrator screening feedback.' },
     { title: 'Financial logs', desc: 'Accumulated earnings tracker, payout records, amounts paid, status of booking fee distributions, and transaction IDs.' }
@@ -148,7 +148,7 @@ async function main() {
     { name: 'Google Calendar & Meet', details: 'Integrates with calendar scopes to schedule bookings, invite attendees by email, update slots dynamically, and generate standard Google Meet links.' },
     { name: 'Firebase / Google Authentication', details: 'Accesses user Name, Email, and Profile photo link from the Google ID Token via Google sign-in popups.' },
     { name: 'Razorpay Payment Gateway', details: 'Accesses payment details, signature hashes, order status, and webhook payloads to securely facilitate and verify transactions.' },
-    { name: 'Cloudinary Media Storage', details: 'Uploads and hosts public avatars and encrypted verification documents.' },
+    { name: 'Supabase Storage', details: 'Uploads and hosts public avatars and encrypted verification documents.' },
     { name: 'Brevo SMTP Email', details: 'Uses SMTP keys to send transactional emails, onboarding verifications, OTP verification codes, and booking status alerts.' }
   ];
 

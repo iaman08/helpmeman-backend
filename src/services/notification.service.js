@@ -1,6 +1,6 @@
 const prisma = require('../config/prisma');
 const { sendNotificationEmail } = require('./email.service');
-const { sendPushToUser } = require('./fcm.service');
+const { sendPushToUser } = require('./push.service');
 const { actionUrlForType } = require('../emails/notificationEmail');
 const config = require('../config/env');
 

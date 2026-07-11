@@ -1,6 +1,4 @@
-const { verifyAccessToken } = require('../utils/jwt');
-const prisma = require('../config/prisma');
-
+const authService = require('../services/auth.service');
 
 async function authenticate(req, res, next) {
   try {
@@ -10,46 +8,33 @@ async function authenticate(req, res, next) {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = verifyAccessToken(token);
-
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isEmailVerified: true,
-        avatar: true,
-      },
-    });
-
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
+    const user = await authService.verifySession(token);
 
     req.user = user;
+
+    // Track user presence dynamically from API traffic
+    const { updateUserPresence } = require('../services/presence.service');
+    updateUserPresence(user.id).catch(() => {});
+
     next();
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
+    console.error('Auth middleware error:', error.message);
+    if (error.message.includes('expired')) {
       return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
     }
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
 
-// Optional auth — sets req.user if token present, but doesn't fail
 async function optionalAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      const decoded = verifyAccessToken(token);
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: { id: true, name: true, email: true, role: true },
-      });
-      req.user = user || null;
+      const user = await authService.verifySession(token);
+      req.user = user;
+    } else {
+      req.user = null;
     }
   } catch {
     req.user = null;
@@ -58,3 +43,4 @@ async function optionalAuth(req, res, next) {
 }
 
 module.exports = { authenticate, optionalAuth };
+

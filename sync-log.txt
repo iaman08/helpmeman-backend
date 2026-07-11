@@ -1,0 +1,27 @@
+=== DB Sync Run: 2026-07-10T16:52:41.579Z ===
+[Startup Sync] Running prisma db push...
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": PostgreSQL database "postgres", schema "public" at "db.dmiuttyiwevpbocbhvfh.supabase.co:5432"
+
+⚠️  There might be data loss when applying the changes:
+
+  • The `languages` column on the `Mentor` table would be dropped and recreated. This will lead to data loss.
+
+
+
+Your database is now in sync with your Prisma schema. Done in 19.71s
+
+
+[Startup Sync] Running prisma generate...
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+
+✔ Generated Prisma Client (v5.22.0) to .\node_modules\@prisma\client in 275ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Curious about the SQL queries Prisma ORM generates? Optimize helps you enhance your visibility: https://pris.ly/tip-2-optimize
+
+
+[Startup Sync] Database push and generation complete!
