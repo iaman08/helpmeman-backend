@@ -39,101 +39,10 @@ model User {
   complaints      Complaint[]
   username        String?  @unique
   currentRole     String?
+  lastSeen        DateTime?      @default(now())
+  presenceStatus  String?        @default("OFFLINE")
 
   @@index([username])
-}
-
-model MentorOnboardingAnswer {
-  id        String   @id @default(cuid())
-  mentorId  String
-  mentor    User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
-  question  String   @db.Text
-  answer    String   @db.Text
-  questionKey String
-  skipped   Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([mentorId, createdAt])
-}
-
-model MentorProfile {
-  id                 String   @id @default(cuid())
-  mentorId           String   @unique
-  mentor             User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
-  name               String?
-  preferredName      String?
-  role               String?
-  company            String?
-  location           String?
-  skills             String[]
-  expertiseTags      String[]
-  experienceYears    Int?
-  bio                String?  @db.Text
-  mentoringStyle     Json?
-  personality        Json?
-  goals              String?  @db.Text
-  summary            String?  @db.Text
-  onboardingStatus   String   @default("NOT_STARTED")
-  currentQuestion    Int      @default(0)
-  completedAt        DateTime?
-  updatedAt          DateTime @updatedAt
-}
-
-model MentorMemory {
-  id        String   @id @default(cuid())
-  mentorId  String
-  mentor    User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
-  source    String   @default("onboarding")
-  content   String   @db.Text
-  metadata  Json?
-  embedding Json?    // provider-neutral vector; can be migrated to pgvector later
-  createdAt DateTime @default(now())
-
-  @@index([mentorId, createdAt])
-}
-
-model Mentor {
-  id                String           @id @default(cuid())
-  userId            String           @unique
-  user              User             @relation(fields: [userId], references: [id])
-  displayName       String
-  bio               String           @db.Text
-  avatar            String?
-  institutionType   InstitutionType
-  institutionName   String
-  institutionEmail  String           @unique
-  department        String?
-  graduationYear    Int?
-  currentRole       String?
-  company           String?
-  linkedinUrl       String?
-  expertise         String[]
-  categoryId        String
-  category          Category         @relation(fields: [categoryId], references: [id])
-  approvalStatus    ApprovalStatus   @default(PENDING)
-  rejectionReason   String?
-  isActive          Boolean          @default(false)
-  pricePerSession   Int
-  sessionDuration   Int              @default(30)
-  googleCalendarId  String?
-  totalSessions     Int              @default(0)
-  rating            Float            @default(0)
-  location          String?
-  activeStatus      String?
-  averageResponseTime String?
-  languages         String?
-  experienceYears   Int?
-  isOnline          Boolean          @default(false)
-  availabilities    Availability[]
-  bookings          Booking[]
-  reviews           Review[]
-  verificationDocs  VerificationDoc[]
-  notifications     Notification[]
-  earnings          Earning[]
-  chatThreads       ChatThread[]
-  complaints        Complaint[]
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
 }
 
 model Category {
@@ -319,14 +228,48 @@ model ChatThread {
 }
 
 model ChatMessage {
-  id         String     @id @default(cuid())
-  threadId   String
-  thread     ChatThread @relation(fields: [threadId], references: [id])
-  senderId   String
-  senderRole SenderRole
-  body       String     @db.Text
-  isRead     Boolean    @default(false)
-  createdAt  DateTime   @default(now())
+  id          String            @id @default(cuid())
+  threadId    String
+  thread      ChatThread        @relation(fields: [threadId], references: [id])
+  senderId    String
+  senderRole  SenderRole
+  body        String            @db.Text
+  isRead      Boolean           @default(false)
+  status      MessageStatus     @default(SENT)
+  // Reply-to support
+  replyToId   String?
+  replyTo     ChatMessage?      @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies     ChatMessage[]     @relation("MessageReplies")
+  // Edit and soft-delete
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  // File/image attachments: [{url, name, type, size}]
+  attachments Json?
+  createdAt   DateTime          @default(now())
+  reactions   MessageReaction[]
+
+  @@index([threadId, createdAt])
+  @@index([threadId, senderId, isRead])
+}
+
+model MessageReaction {
+  id        String      @id @default(cuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+}
+
+
+enum MessageStatus {
+  SENDING
+  SENT
+  DELIVERED
+  READ
 }
 
 enum ThreadStatus {
@@ -437,4 +380,107 @@ model MentorOnboarding {
   completed       Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model Mentor {
+  id                  String           @id @default(cuid())
+  userId              String           @unique
+  user                User             @relation(fields: [userId], references: [id])
+  displayName         String
+  bio                 String           @db.Text
+  avatar              String?
+  institutionType     InstitutionType
+  institutionName     String
+  institutionEmail    String           @unique
+  department          String?
+  graduationYear      Int?
+  currentRole         String?
+  company             String?
+  linkedinUrl         String?
+  expertise           String[]
+  categoryId          String
+  category            Category         @relation(fields: [categoryId], references: [id])
+  approvalStatus      ApprovalStatus   @default(PENDING)
+  rejectionReason     String?
+  isActive            Boolean          @default(false)
+  pricePerSession     Int
+  sessionDuration     Int              @default(30)
+  googleCalendarId    String?
+  totalSessions       Int              @default(0)
+  rating              Float            @default(0)
+
+  // Structured Address
+  country             String?
+  state               String?
+  city                String?
+  locality            String?
+  postalCode          String?
+  location            String?          // Backward compatibility concatenated string
+
+  activeStatus        String?          // Backward compatibility concatenated string (will update via lastSeen)
+  averageResponseTime String?        // Auto calculated response time string
+
+  languages           String[]         // Changed from String? to String[]
+
+  experienceYears     Int?
+  isOnline            Boolean          @default(false)
+  availabilities      Availability[]
+  bookings            Booking[]
+  reviews             Review[]
+  verificationDocs    VerificationDoc[]
+  notifications       Notification[]
+  earnings            Earning[]
+  chatThreads         ChatThread[]
+  complaints          Complaint[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+}
+
+model MentorOnboardingAnswer {
+  id          String   @id @default(cuid())
+  mentorId    String
+  mentor      User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  question    String   @db.Text
+  answer      String   @db.Text
+  questionKey String
+  skipped     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([mentorId, createdAt])
+}
+
+model MentorProfile {
+  id                 String   @id @default(cuid())
+  mentorId           String   @unique
+  mentor             User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  name               String?
+  preferredName      String?
+  role               String?
+  company            String?
+  location           String?
+  skills             String[]
+  expertiseTags      String[]
+  experienceYears    Int?
+  bio                String?  @db.Text
+  mentoringStyle     Json?
+  personality        Json?
+  goals              String?  @db.Text
+  summary            String?  @db.Text
+  onboardingStatus   String   @default("NOT_STARTED")
+  currentQuestion    Int      @default(0)
+  completedAt        DateTime?
+  updatedAt          DateTime @updatedAt
+}
+
+model MentorMemory {
+  id        String   @id @default(cuid())
+  mentorId  String
+  mentor    User     @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  source    String   @default("onboarding")
+  content   String   @db.Text
+  metadata  Json?
+  embedding Json?    // provider-neutral vector; can be migrated to pgvector later
+  createdAt DateTime @default(now())
+
+  @@index([mentorId, createdAt])
 }

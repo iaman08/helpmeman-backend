@@ -2,6 +2,42 @@ const prisma = require('../config/prisma');
 const { uploadImage, uploadDocument } = require('../services/upload.service');
 const { getMentorNotifications } = require('../services/notification.service');
 
+// Helper to map dynamic presence properties from the user model
+function enrichPresence(mentor) {
+  if (!mentor) return null;
+  const user = mentor.user;
+  if (!user) return mentor;
+
+  const presenceStatus = user.presenceStatus || 'OFFLINE';
+  const lastSeen = user.lastSeen;
+
+  // ONLINE if they have interacted within 5 mins
+  const isOnline = presenceStatus === 'ONLINE';
+
+  let activeStatus = 'Offline';
+  if (presenceStatus === 'ONLINE') {
+    activeStatus = 'Online';
+  } else if (presenceStatus === 'AWAY') {
+    activeStatus = 'Away';
+  } else if (lastSeen) {
+    const diffMs = Date.now() - new Date(lastSeen).getTime();
+    if (diffMs < 24 * 60 * 60 * 1000) {
+      activeStatus = 'Active today';
+    } else if (diffMs < 7 * 24 * 60 * 60 * 1000) {
+      activeStatus = 'Active this week';
+    } else {
+      activeStatus = 'Active recently';
+    }
+  }
+
+  return {
+    ...mentor,
+    isOnline,
+    activeStatus,
+    avatar: mentor.avatar || user.avatar || null
+  };
+}
+
 // ─── Public ───
 async function searchMentors(req, res) {
   try {
@@ -18,21 +54,49 @@ async function searchMentors(req, res) {
 
     const orderBy = sortBy === 'price' ? { pricePerSession: 'asc' } : sortBy === 'sessions' ? { totalSessions: 'desc' } : sortBy === 'newest' ? { createdAt: 'desc' } : { rating: 'desc' };
 
-    const [mentors, total] = await Promise.all([
-      prisma.mentor.findMany({ where, include: { category: true, user: { select: { name: true } } }, orderBy, skip: (parseInt(page) - 1) * parseInt(limit), take: parseInt(limit) }),
+    const [mentorsList, total] = await Promise.all([
+      prisma.mentor.findMany({
+        where,
+        include: {
+          category: true,
+          user: {
+            select: { name: true, avatar: true, presenceStatus: true, lastSeen: true }
+          }
+        },
+        orderBy,
+        skip: (parseInt(page) - 1) * parseInt(limit),
+        take: parseInt(limit)
+      }),
       prisma.mentor.count({ where }),
     ]);
+
+    const mentors = mentorsList.map(enrichPresence);
+
     res.json({ mentors, total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Search failed' }); }
 }
 
 async function getMentorPublic(req, res) {
   try {
-    const mentor = await prisma.mentor.findFirst({
+    const mentorRaw = await prisma.mentor.findFirst({
       where: { id: req.params.id, approvalStatus: 'APPROVED', isActive: true },
-      include: { category: true, user: { select: { name: true, email: true } }, reviews: { where: { isVisible: true }, take: 5, orderBy: { createdAt: 'desc' }, include: { user: { select: { name: true, avatar: true } } } } },
+      include: {
+        category: true,
+        user: {
+          select: { name: true, email: true, avatar: true, presenceStatus: true, lastSeen: true }
+        },
+        reviews: {
+          where: { isVisible: true },
+          take: 5,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            user: { select: { name: true, avatar: true } }
+          }
+        }
+      },
     });
-    if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
+    if (!mentorRaw) return res.status(404).json({ error: 'Mentor not found' });
+    const mentor = enrichPresence(mentorRaw);
     res.json({ mentor });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
@@ -62,31 +126,87 @@ async function getMentorReviews(req, res) {
 // ─── Mentor Dashboard ───
 async function getOwnProfile(req, res) {
   try {
-    const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id }, include: { category: true, verificationDocs: true } });
-    if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
+    const mentorRaw = await prisma.mentor.findUnique({
+      where: { userId: req.user.id },
+      include: {
+        category: true,
+        verificationDocs: true,
+        user: {
+          select: { avatar: true, presenceStatus: true, lastSeen: true }
+        }
+      }
+    });
+    if (!mentorRaw) return res.status(404).json({ error: 'Mentor profile not found' });
+    const mentor = enrichPresence(mentorRaw);
     res.json({ mentor });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 
 async function updateOwnProfile(req, res) {
   try {
-    const { bio, expertise, pricePerSession, sessionDuration, linkedinUrl, displayName, location, activeStatus, averageResponseTime, languages, experienceYears, isOnline } = req.body;
+    const {
+      bio,
+      expertise,
+      pricePerSession,
+      sessionDuration,
+      linkedinUrl,
+      displayName,
+      languages,
+      experienceYears,
+      isOnline,
+      country,
+      state,
+      city,
+      locality,
+      postalCode
+    } = req.body;
+
     const data = {};
-    if (bio) data.bio = bio;
-    if (expertise) data.expertise = expertise;
+    if (bio !== undefined) data.bio = bio;
+    if (expertise !== undefined) data.expertise = expertise;
     if (pricePerSession !== undefined) data.pricePerSession = pricePerSession;
     if (sessionDuration !== undefined) data.sessionDuration = sessionDuration;
     if (linkedinUrl !== undefined) data.linkedinUrl = linkedinUrl;
-    if (displayName) data.displayName = displayName;
-    if (location !== undefined) data.location = location;
-    if (activeStatus !== undefined) data.activeStatus = activeStatus;
-    if (averageResponseTime !== undefined) data.averageResponseTime = averageResponseTime;
-    if (languages !== undefined) data.languages = languages;
+    if (displayName !== undefined) data.displayName = displayName;
     if (experienceYears !== undefined) data.experienceYears = experienceYears !== null ? parseInt(experienceYears) : null;
     if (isOnline !== undefined) data.isOnline = isOnline === true || isOnline === 'true';
-    const mentor = await prisma.mentor.update({ where: { userId: req.user.id }, data });
+
+    // Structured Address Fields
+    if (country !== undefined) data.country = country;
+    if (state !== undefined) data.state = state;
+    if (city !== undefined) data.city = city;
+    if (locality !== undefined) data.locality = locality;
+    if (postalCode !== undefined) data.postalCode = postalCode;
+
+    // Concatenate address into location string
+    if (city || state || country) {
+      data.location = [city, state, country].filter(Boolean).join(', ');
+    }
+
+    // Languages array mapping
+    if (languages !== undefined) {
+      if (Array.isArray(languages)) {
+        data.languages = languages;
+      } else if (typeof languages === 'string') {
+        data.languages = languages.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+
+    const mentorRaw = await prisma.mentor.update({
+      where: { userId: req.user.id },
+      data,
+      include: {
+        category: true,
+        user: { select: { avatar: true, presenceStatus: true, lastSeen: true } }
+      }
+    });
+
+    const mentor = enrichPresence(mentorRaw);
     res.json({ mentor });
-  } catch (e) { res.status(500).json({ error: 'Update failed' }); }
+  } catch (e) {
+    console.error('[MENTOR_CONTROLLER] Update error:', e);
+    res.status(500).json({ error: 'Update failed' });
+  }
 }
 
 async function updateAvatar(req, res) {

@@ -1,0 +1,81 @@
+=== Async Migration & Seed Run: 2026-07-10T08:33:05.197Z ===
+
+--- Starting: Prisma DB Push (npx prisma db push) ---
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": PostgreSQL database "postgres", schema "public" at "db.dmiuttyiwevpbocbhvfh.supabase.co:5432"
+
+The database is already in sync with the Prisma schema.
+
+Running generate... (Use --skip-generate to skip the generators)
+[2K[1A[2K[GRunning generate... - Prisma Client
+[2K[1A[2K[GEPERM: operation not permitted, rename 'D:\HelpMeMan\backend\node_modules\.prism
+a\client\query_engine-windows.dll.node.tmp24024' -> 'D:\HelpMeMan\backend\node_m
+odules\.prisma\client\query_engine-windows.dll.node'
+
+
+--- Finished: Prisma DB Push with exit code 0 ---
+
+--- Starting: Prisma Seed (node prisma/seed.js) ---
+🌱 Seeding HelpMeMan database...
+
+✅ 8 categories created
+✅ Admin: admin@helpmeman.com
+  ✅ Aarav Mehta (IIT Bombay)
+  ✅ Dr. Priya Sharma (AIIMS Delhi)
+  ✅ Rohan Kapoor (Microsoft)
+  ✅ Ananya Reddy (NLU Bangalore)
+  ✅ Vikram Singh (Meta)
+  ✅ Meera Joshi (EdTech Startup (YC W23))
+  ✅ Arjun Patel (Amazon)
+  ✅ Kavya Nair (Goldman Sachs)
+  ✅ Demo Mentor (HelpMeMan Inc.)
+  ✅ Student: student@helpmeman.com
+
+🎉 Seeding complete!
+
+Test accounts:
+  Admin:   admin@helpmeman.com / password123
+  Student: student@helpmeman.com / password123
+  Mentors: mentor@helpmeman.com / password123
+
+--- Finished: Prisma Seed with exit code 0 ---
+
+--- Starting: Prisma DB Test (node scratch-db-test.js) ---
+Testing connection to DATABASE_URL: postgresql://postgres:****@db.dmiuttyiwevpbocbhvfh.supabase.co:5432/postgres
+✅ Success! Connected to database. Total users: 11
+✅ Total categories: 8
+
+Checking user: admin@helpmeman.com...
+✅ User found:
+  - ID: cmreoig3e0008depaqoglz5mx
+  - Name: HelpMeMan Admin
+  - Role: ADMIN
+  - Email Verified: true
+  - Has Password Hash: true
+  - Hash value: $2a$12$6KE5mvBcNfLFSG.uFm0wjeNSBdpwjh4BMyFI6siLcLaejVH1aboDG
+  - Bcrypt compare with 'password123': VALID ✅
+
+Checking user: mentor@helpmeman.com...
+✅ User found:
+  - ID: cmreoippk001ddepa1zpj48v3
+  - Name: Demo Mentor
+  - Role: MENTOR
+  - Email Verified: true
+  - Has Password Hash: true
+  - Hash value: $2a$12$Yz1qn6IUgHqMt/7ZIR/F/uhInDlcdNeXT1FMAynomx4ebizMtZ9hm
+  - Bcrypt compare with 'password123': VALID ✅
+
+Checking user: student@helpmeman.com...
+✅ User found:
+  - ID: cmreoitff001idepa4o9zk7gg
+  - Name: Riya Gupta
+  - Role: USER
+  - Email Verified: true
+  - Has Password Hash: true
+  - Hash value: $2a$12$PObKj1L0jYfdcMFySHq1o.VJfJK4ZQ153ZWg0Z9cOnoHKvnD5lZO2
+  - Bcrypt compare with 'password123': VALID ✅
+
+--- Finished: Prisma DB Test with exit code 0 ---
+
+=== All DB setup commands finished successfully ===

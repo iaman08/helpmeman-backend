@@ -1,4 +1,4 @@
-require('dns').setDefaultResultOrder('ipv4first'); // env reload trigger
+require('dns').setDefaultResultOrder('ipv4first'); // env reload trigger v4
 const express = require('express');
 const cors    = require('cors');
 const helmet  = require('helmet');
@@ -131,9 +131,53 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/public/ai', publicAiRoutes);
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check & db reaction cleaner
+app.get('/api/health', async (req, res) => {
+  try {
+    const prisma = require('./config/prisma');
+    const all = await prisma.messageReaction.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    const seen = new Set();
+    const duplicates = [];
+    
+    for (const r of all) {
+      const key = `${r.messageId}_${r.userId}`;
+      if (seen.has(key)) {
+        duplicates.push(r.id);
+      } else {
+        seen.add(key);
+      }
+    }
+    
+    if (duplicates.length > 0) {
+      console.log(`[DB Migration] Deleting ${duplicates.length} duplicate reaction rows...`);
+      await prisma.messageReaction.deleteMany({
+        where: { id: { in: duplicates } }
+      });
+    }
+    
+    // Re-establish strict unique index
+    await prisma.$executeRawUnsafe(`
+      DROP INDEX IF EXISTS "MessageReaction_messageId_userId_emoji_key";
+    `);
+    await prisma.$executeRawUnsafe(`
+      DROP INDEX IF EXISTS "MessageReaction_messageId_userId_key";
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "MessageReaction_messageId_userId_key" 
+      ON "MessageReaction"("messageId", "userId");
+    `);
+
+    res.json({ 
+      status: 'ok', 
+      cleanedReactions: duplicates.length,
+      timestamp: new Date().toISOString() 
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Error handler
@@ -147,6 +191,15 @@ const PORT = config.port;
 server.listen(PORT, () => {
   console.log(`🚀 HelpMeMan backend running on port ${PORT}`);
   console.log(`📡 Socket.io ready`);
+  
+  // Initialize presence checker sweep
+  try {
+    const { initPresenceSweep } = require('./services/presence.service');
+    initPresenceSweep();
+  } catch (error) {
+    console.warn('[PRESENCE] Failed to start sweeper:', error.message);
+  }
+
   // Initialize job queue (skipped in development to avoid Upstash limit-reached console floods)
   if (config.nodeEnv === 'production') {
     try { initReminderQueue(config.redis.url); } catch (e) { console.warn('Redis queue init skipped'); }

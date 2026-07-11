@@ -45,8 +45,13 @@ async function getMentorDetail(req, res) {
 }
 
 async function approveMentorHandler(req, res) {
-  try { const mentor = await approveMentor(req.params.id); res.json({ mentor }); }
-  catch (e) { res.status(500).json({ error: 'Approval failed' }); }
+  try {
+    const mentor = await approveMentor(req.params.id);
+    res.json({ mentor });
+  } catch (e) {
+    console.error('[ADMIN] Mentor approval handler crashed:', e);
+    res.status(500).json({ error: e.message || 'Approval failed' });
+  }
 }
 
 async function rejectMentorHandler(req, res) {
@@ -55,7 +60,10 @@ async function rejectMentorHandler(req, res) {
     if (!reason) return res.status(400).json({ error: 'Reason required' });
     const mentor = await rejectMentor(req.params.id, reason);
     res.json({ mentor });
-  } catch (e) { res.status(500).json({ error: 'Rejection failed' }); }
+  } catch (e) {
+    console.error('[ADMIN] Mentor rejection handler crashed:', e);
+    res.status(500).json({ error: e.message || 'Rejection failed' });
+  }
 }
 
 async function getAllMentors(req, res) {

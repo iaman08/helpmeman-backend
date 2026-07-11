@@ -338,7 +338,24 @@ async function sendPasswordResetEmail(user, resetUrl) {
 }
 
 async function sendMentorApprovalEmail(user, approved, reason) {
-  const html = await renderMentorApprovalEmail({ name: user.displayName || user.name, approved, reason });
+  let html;
+  try {
+    html = await renderMentorApprovalEmail({ name: user.displayName || user.name, approved, reason });
+  } catch (error) {
+    console.error('[EMAIL] Mentor approval template render failed, using plain fallback:', error.message);
+    const title = approved ? "Congratulations! You're approved!" : 'Update on your mentor application';
+    const body = approved
+      ? 'Congratulations! Your mentor profile has been reviewed and approved. Mentees can now discover your profile, view your schedule, and book 1-on-1 mentorship sessions with you.'
+      : `Thank you for applying to be a mentor on HelpMeMan. We reviewed your profile details and are unable to approve your application at this time.\n\nFeedback/Reason:\n"${reason || 'Please verify that your profile fields, LinkedIn URL, and expertise tags are complete.'}"`;
+
+    html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:40px;line-height:1.6;color:#334155;">
+      <h2 style="color:#0f172a;">${title}</h2>
+      <p>Hi ${user.displayName || user.name || 'there'},</p>
+      <p>${body}</p>
+      <p style="margin-top:30px;font-size:13px;color:#64748b;">HelpMeMan Team</p>
+    </div>`;
+  }
+
   return sendEmail({
     to: user.email,
     subject: approved ? 'You are approved on HelpMeMan!' : 'Update on your mentor application',
@@ -379,6 +396,67 @@ function passwordResetTemplate(user, resetUrl) {
   return `<p>Reset: ${resetUrl}</p>`;
 }
 
+async function sendMentorUnderReviewEmail(user) {
+  const name = user.displayName || user.name;
+  const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:40px;color:#0f172a;line-height:1.6;">
+    <h2 style="color:#4f46e5;margin-bottom:20px;">Mentor Onboarding Completed!</h2>
+    <p>Hi ${name},</p>
+    <p>Thank you for completing your mentor onboarding on HelpMeMan! Your profile details are now under review by our administrator team.</p>
+    <p>We are currently reviewing your profile information, skills, and experience. You will receive an email notification as soon as your profile has been approved and is live on the platform.</p>
+    <p>Typically, reviews are completed within 24-48 hours. If we need any additional details, we will reach out to you.</p>
+    <br/>
+    <p>Best regards,<br/>The HelpMeMan Team</p>
+  </div>`;
+
+  return sendEmail({
+    to: user.email,
+    subject: 'Your mentor application is in review — HelpMeMan',
+    html,
+    userId: user.id || user.userId,
+    templateType: 'mentor_under_review',
+  });
+}
+
+async function sendMentorApplicationToAdminEmail(mentorUser, answers) {
+  const name = mentorUser.displayName || mentorUser.name;
+  const email = mentorUser.email;
+  const adminEmail = config.admin.notificationEmail || config.admin.email || 'admin@helpmeman.com';
+
+  const answersHtml = answers
+    .map(a => `<div style="margin-bottom: 16px; border-bottom: 1px solid #f1f5f9; padding-bottom: 12px;">
+      <p style="margin: 0 0 4px 0; font-weight: bold; color: #334155;">Q: ${a.question}</p>
+      <p style="margin: 0; color: #475569;">A: ${a.skipped ? '<span style="color: #94a3b8; font-style: italic;">Skipped</span>' : a.answer}</p>
+    </div>`)
+    .join('');
+
+  const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:40px;color:#0f172a;line-height:1.6;">
+    <h2 style="color:#4f46e5;margin-bottom:16px;">New Mentor Application Submitted</h2>
+    <p>A new mentor has completed their onboarding and is awaiting review.</p>
+    
+    <h3 style="border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-top:24px;color:#0f172a;">Mentor Details</h3>
+    <table style="width:100%;border-collapse:collapse;margin-top:10px;">
+      <tr><td style="padding:6px 0;font-weight:bold;width:30%;color:#475569;">Name:</td><td style="padding:6px 0;color:#0f172a;">${name}</td></tr>
+      <tr><td style="padding:6px 0;font-weight:bold;color:#475569;">Email:</td><td style="padding:6px 0;color:#0f172a;">${email}</td></tr>
+    </table>
+
+    <h3 style="border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-top:24px;color:#0f172a;">Onboarding Answers</h3>
+    <div style="background:#f8fafc;padding:20px;border-radius:8px;margin-top:10px;">
+      ${answersHtml}
+    </div>
+    
+    <div style="margin-top:32px;text-align:center;">
+      <a href="${config.frontendUrl}/admin" style="background:#4f46e5;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;display:inline-block;">Go to Admin Dashboard</a>
+    </div>
+  </div>`;
+
+  return sendEmail({
+    to: adminEmail,
+    subject: `New Mentor Application: ${name} — HelpMeMan`,
+    html,
+    templateType: 'admin_mentor_application_review',
+  });
+}
+
 module.exports = {
   sendEmail,
   sendOtpEmail,
@@ -387,6 +465,8 @@ module.exports = {
   sendVerifyEmail,
   sendPasswordResetEmail,
   sendMentorApprovalEmail,
+  sendMentorUnderReviewEmail,
+  sendMentorApplicationToAdminEmail,
   sendWeeklyUpdateEmail,
   retryFailedEmails,
   logEmailDelivery,

@@ -14,7 +14,8 @@
     "db:seed": "node prisma/seed.js",
     "db:studio": "npx prisma studio",
     "db:test": "node scratch-db-test.js",
-    "test-smtp": "node src/test-smtp.js"
+    "test-smtp": "node src/test-smtp.js",
+    "test-chat": "node test_chat.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

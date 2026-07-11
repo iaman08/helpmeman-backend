@@ -21,13 +21,6 @@ const QUESTIONS = [
     placeholder: 'Example: Rahul, Dr. Mehta, Priya',
   },
   {
-    key: 'role_type',
-    phase: 'Identity',
-    type: 'single_choice',
-    text: 'Which best describes your current work?',
-    options: ['Founder', 'Product leader', 'Engineer', 'Designer', 'Marketer', 'Operator', 'Investor', 'Other'],
-  },
-  {
     key: 'role_company',
     phase: 'Identity',
     type: 'text',
@@ -49,13 +42,6 @@ const QUESTIONS = [
     options: ['Product strategy', 'Software engineering', 'AI/ML', 'Growth', 'Fundraising', 'Leadership', 'Design', 'Career growth', 'Sales', 'Operations'],
   },
   {
-    key: 'topics',
-    phase: 'Expertise',
-    type: 'text',
-    text: 'What topics can you mentor people in?',
-    placeholder: 'Add a few topics, separated by commas',
-  },
-  {
     key: 'experience',
     phase: 'Expertise',
     type: 'single_choice',
@@ -63,67 +49,11 @@ const QUESTIONS = [
     options: ['1-3 years', '4-6 years', '7-10 years', '10+ years', '15+ years'],
   },
   {
-    key: 'industries',
-    phase: 'Expertise',
-    type: 'multi_choice',
-    text: 'Which industries have shaped your experience?',
-    options: ['SaaS', 'Fintech', 'AI', 'Consumer', 'Healthcare', 'Education', 'E-commerce', 'Enterprise', 'Climate', 'Other'],
-  },
-  {
-    key: 'focus',
-    phase: 'Expertise',
-    type: 'text',
-    text: 'What are you currently focused on?',
-    placeholder: 'A product, company goal, learning curve, or mission',
-  },
-  {
-    key: 'journey',
-    phase: 'Background',
-    type: 'text',
-    text: 'Tell me the short version of your career journey.',
-    placeholder: 'A few lines is perfect',
-  },
-  {
-    key: 'achievement',
-    phase: 'Background',
-    type: 'text',
-    text: "What's an achievement you're proud of?",
-    placeholder: 'Something that still feels meaningful',
-  },
-  {
-    key: 'leadership_projects',
-    phase: 'Background',
-    type: 'single_choice',
-    text: 'Have you founded a startup, led a team, or owned a major project?',
-    options: ['Founded a startup', 'Led a team', 'Owned a major project', 'Not yet', 'A mix of these'],
-  },
-  {
-    key: 'why_mentor',
-    phase: 'Mentoring style',
-    type: 'text',
-    text: 'Why do you mentor?',
-    placeholder: 'What makes it worth your time?',
-  },
-  {
-    key: 'mentoring_style',
-    phase: 'Mentoring style',
-    type: 'multi_choice',
-    text: 'How do you usually help people?',
-    options: ['Direct feedback', 'Hands-on problem solving', 'Strategy sessions', 'Accountability', 'Career clarity', 'Network introductions', 'Portfolio/project reviews'],
-  },
-  {
     key: 'preferred_mentees',
     phase: 'Mentoring style',
     type: 'single_choice',
     text: 'What type of mentees do you enjoy working with most?',
     options: ['Early-career professionals', 'Founders', 'Students', 'Career switchers', 'Senior leaders', 'Builders with an idea'],
-  },
-  {
-    key: 'personal',
-    phase: 'Personal',
-    type: 'text',
-    text: 'Last one: what motivates you, inspires you, or keeps you curious outside work?',
-    placeholder: 'Books, creators, leaders, hobbies, long-term goals',
   },
 ];
 
@@ -299,55 +229,86 @@ async function summarize(userId) {
     create: { name: 'General Mentorship', slug: 'general-mentorship', description: 'Cross-functional career and life mentorship' },
   });
 
-  await prisma.$transaction([
-    prisma.mentorProfile.update({
-      where: { mentorId: userId },
-      data: {
-        ...result,
-        skills: result.skills || [],
-        expertiseTags: result.expertiseTags || [],
-        onboardingStatus: 'COMPLETED',
-        completedAt: new Date(),
-        currentQuestion: QUESTIONS.length,
-      },
-    }),
-    prisma.mentorMemory.create({ data: { mentorId: userId, content: transcript, metadata: { type: 'onboarding_transcript', answerCount: answers.length }, embedding: tinyEmbedding(transcript) } }),
-    prisma.mentor.upsert({
-      where: { userId },
-      update: {
-        displayName: result.preferredName || result.name || user.name,
-        bio: result.bio || '',
-        currentRole: result.role || null,
-        company: result.company || null,
-        expertise: result.expertiseTags || result.skills || [],
-        location: result.location || null,
-        experienceYears: result.experienceYears || null,
-      },
-      create: {
-        userId,
-        displayName: result.preferredName || result.name || user.name,
-        bio: result.bio || '',
-        institutionType: 'COMPANY',
-        institutionName: result.company || 'Independent',
-        institutionEmail: user.email,
-        currentRole: result.role || null,
-        company: result.company || null,
-        expertise: result.expertiseTags || result.skills || [],
-        categoryId: category.id,
-        pricePerSession: 0,
-        sessionDuration: 30,
-        location: result.location || null,
-        activeStatus: 'Active this week',
-        averageResponseTime: '1 day',
-        languages: 'Speaks English',
-        experienceYears: result.experienceYears || null,
-      },
-    }),
-    prisma.mentorOnboarding.update({
-      where: { userId },
-      data: { completed: true, currentQuestion: QUESTIONS.length },
-    }),
-  ]);
+    // Parse location
+    let country = 'India';
+    let state = '';
+    let city = '';
+    const locStr = result.location || '';
+    if (locStr) {
+      const parts = locStr.split(',').map(s => s.trim());
+      if (parts.length >= 2) {
+        city = parts[0];
+        country = parts[parts.length - 1];
+        state = parts.length === 3 ? parts[1] : '';
+      } else {
+        city = locStr;
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.mentorProfile.update({
+        where: { mentorId: userId },
+        data: {
+          ...result,
+          skills: result.skills || [],
+          expertiseTags: result.expertiseTags || [],
+          onboardingStatus: 'COMPLETED',
+          completedAt: new Date(),
+          currentQuestion: QUESTIONS.length,
+        },
+      }),
+      prisma.mentorMemory.create({ data: { mentorId: userId, content: transcript, metadata: { type: 'onboarding_transcript', answerCount: answers.length }, embedding: tinyEmbedding(transcript) } }),
+      prisma.mentor.upsert({
+        where: { userId },
+        update: {
+          displayName: result.preferredName || result.name || user.name,
+          bio: result.bio || '',
+          currentRole: result.role || null,
+          company: result.company || null,
+          expertise: result.expertiseTags || result.skills || [],
+          location: result.location || null,
+          country,
+          state: state || null,
+          city,
+          experienceYears: result.experienceYears || null,
+        },
+        create: {
+          userId,
+          displayName: result.preferredName || result.name || user.name,
+          bio: result.bio || '',
+          institutionType: 'COMPANY',
+          institutionName: result.company || 'Independent',
+          institutionEmail: user.email,
+          currentRole: result.role || null,
+          company: result.company || null,
+          expertise: result.expertiseTags || result.skills || [],
+          categoryId: category.id,
+          pricePerSession: 0,
+          sessionDuration: 30,
+          location: result.location || null,
+          country,
+          state: state || null,
+          city,
+          activeStatus: 'Active this week',
+          averageResponseTime: '1 day',
+          languages: ['English'],
+          experienceYears: result.experienceYears || null,
+        },
+      }),
+      prisma.mentorOnboarding.update({
+        where: { userId },
+        data: { completed: true, currentQuestion: QUESTIONS.length },
+      }),
+    ]);
+
+  // Trigger email notifications
+  try {
+    const { sendMentorUnderReviewEmail, sendMentorApplicationToAdminEmail } = require('./email.service');
+    sendMentorUnderReviewEmail(user).catch(err => console.error('[ONBOARDING] Failed to send mentor review email:', err.message));
+    sendMentorApplicationToAdminEmail(user, answers).catch(err => console.error('[ONBOARDING] Failed to send admin notification email:', err.message));
+  } catch (err) {
+    console.error('[ONBOARDING] Email dispatch setup failed:', err.message);
+  }
 
   return getState(userId);
 }
