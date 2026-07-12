@@ -9,7 +9,7 @@ async function getProfile(req, res) {
     const [user, mentor] = await Promise.all([
       prisma.user.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true, username: true, currentRole: true }
+        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true, username: true, currentRole: true, currency: true }
       }),
       prisma.mentor.findUnique({
         where: { userId: req.user.id },
@@ -30,11 +30,12 @@ async function getProfile(req, res) {
 
 async function updateProfile(req, res) {
   try {
-    const { name, phone, username, currentRole } = req.body;
+    const { name, phone, username, currentRole, currency } = req.body;
     const data = {};
     if (name) data.name = name;
     if (phone !== undefined) data.phone = phone;
     if (currentRole !== undefined) data.currentRole = currentRole;
+    if (currency !== undefined) data.currency = currency;
     if (req.file) data.avatar = await uploadImage(req.file, 'avatars');
 
     // Handle Username Uniqueness (if requested)
@@ -50,7 +51,7 @@ async function updateProfile(req, res) {
     const user = await prisma.user.update({
       where: { id: req.user.id },
       data,
-      select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, username: true, currentRole: true }
+      select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, username: true, currentRole: true, currency: true }
     });
 
     // Fetch mentor details

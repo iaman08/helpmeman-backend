@@ -3,20 +3,48 @@ const { createOrder, verifyPaymentSignature } = require('../services/payment.ser
 const { createMeetingEvent } = require('../services/googleMeet.service');
 const { sendNotification } = require('../services/notification.service');
 const config = require('../config/env');
+const exchangeRateService = require('../services/exchangeRate.service');
 
 
 async function createBooking(req, res) {
   try {
-    const { mentorId, scheduledAt, durationMinutes = 30 } = req.body;
+    const { mentorId, scheduledAt, durationMinutes = 30, currency } = req.body;
     const mentor = await prisma.mentor.findFirst({ where: { id: mentorId, isActive: true, approvalStatus: 'APPROVED' } });
     if (!mentor) return res.status(404).json({ error: 'Mentor not found or unavailable' });
 
-    const amount = mentor.pricePerSession * (durationMinutes / mentor.sessionDuration);
+    // Original amount in INR Paise
+    const amountInr = mentor.pricePerSession * (durationMinutes / mentor.sessionDuration);
+    
+    // Determine target currency (use request body currency, or user preferred currency, default to INR)
+    let targetCurrency = 'INR';
+    if (currency) {
+      targetCurrency = currency.toUpperCase();
+    } else if (req.user && req.user.currency) {
+      targetCurrency = req.user.currency.toUpperCase();
+    }
+
+    // Convert the INR amount to the target currency subunits
+    const conversion = await exchangeRateService.convertInrToTarget(amountInr, targetCurrency);
+
     const booking = await prisma.booking.create({
-      data: { userId: req.user.id, mentorId, scheduledAt: new Date(scheduledAt), durationMinutes, amountPaid: amount, status: 'PENDING' },
+      data: { 
+        userId: req.user.id, 
+        mentorId, 
+        scheduledAt: new Date(scheduledAt), 
+        durationMinutes, 
+        amountPaid: conversion.amount, // Converted amount in target currency subunits (cents/paise)
+        currency: targetCurrency,
+        amountPaidINR: amountInr, // Original amount in INR paise
+        status: 'PENDING' 
+      },
     });
 
-    const order = await createOrder({ amount, receipt: `booking_${booking.id}`, notes: { bookingId: booking.id } });
+    const order = await createOrder({ 
+      amount: conversion.amount, 
+      currency: targetCurrency, 
+      receipt: `booking_${booking.id}`, 
+      notes: { bookingId: booking.id } 
+    });
     res.json({ booking, order, razorpayKeyId: config.razorpay.keyId });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Booking failed' }); }
 }
@@ -38,8 +66,9 @@ async function verifyPayment(req, res) {
       data: { status: 'CONFIRMED', paymentStatus: 'PAID', paymentId: razorpay_payment_id, googleEventId, meetLink },
     });
 
-    // Create earning (80% to mentor)
-    await prisma.earning.create({ data: { mentorId: booking.mentorId, bookingId: booking.id, amount: Math.floor(booking.amountPaid * (1 - config.platformFeePercent / 100)) } });
+    // Create earning (80% to mentor, based on amountPaidINR base currency)
+    const originalAmountInr = booking.amountPaidINR || booking.amountPaid;
+    await prisma.earning.create({ data: { mentorId: booking.mentorId, bookingId: booking.id, amount: Math.floor(originalAmountInr * (1 - config.platformFeePercent / 100)) } });
     await prisma.mentor.update({ where: { id: booking.mentorId }, data: { totalSessions: { increment: 1 } } });
 
     // Link chat thread if exists

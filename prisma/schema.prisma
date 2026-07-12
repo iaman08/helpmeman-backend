@@ -41,6 +41,7 @@ model User {
   currentRole     String?
   lastSeen        DateTime?      @default(now())
   presenceStatus  String?        @default("OFFLINE")
+  currency        String?
 
   @@index([username])
 }
@@ -79,6 +80,8 @@ model Booking {
   paymentId          String?
   paymentStatus      PaymentStatus @default(UNPAID)
   amountPaid         Int
+  currency           String        @default("INR")
+  amountPaidINR      Int?
   userNotes          String?
   mentorNotes        String?
   cancelledBy        String?
