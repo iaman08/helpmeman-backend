@@ -11,8 +11,8 @@ const {
   Hr,
 } = require('@react-email/components');
 
-const BRAND = '#4f46e5'; // Deep Indigo
-const BRAND_DARK = '#3730a3';
+const BRAND = '#000000'; // Black
+const BRAND_DARK = '#000000';
 const TEXT_MAIN = '#334155'; // Slate 700
 const TEXT_DARK = '#0f172a'; // Slate 900
 const TEXT_MUTED = '#64748b'; // Slate 500

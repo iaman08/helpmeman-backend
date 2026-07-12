@@ -102,7 +102,7 @@ const bodyStyle = { color: '#334155', fontSize: '15px', lineHeight: '1.7', margi
 const metaStyle = { color: '#64748b', fontSize: '13px', lineHeight: '1.5', margin: 0 };
 const listStyle = { color: '#334155', fontSize: '14px', lineHeight: '1.7', margin: '0 0 8px' };
 const buttonStyle = {
-  backgroundColor: '#0f172a', // Slate 900
+  backgroundColor: '#000000',
   borderRadius: '12px',
   color: '#ffffff',
   fontSize: '15px',

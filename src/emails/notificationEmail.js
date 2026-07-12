@@ -29,9 +29,9 @@ function NotificationEmail({ name, title, body, actionUrl, actionLabel, badge })
 
 const badgeWrapStyle = { marginBottom: '12px' };
 const badgeStyle = {
-  backgroundColor: '#eef2ff',
+  backgroundColor: '#f4f4f5',
   borderRadius: '999px',
-  color: '#4338ca',
+  color: '#18181b',
   display: 'inline-block',
   fontSize: '11px',
   fontWeight: 700,
@@ -43,7 +43,7 @@ const badgeStyle = {
 const greetingStyle = { color: '#18181b', fontSize: '16px', lineHeight: '1.6', margin: '0 0 12px' };
 const bodyStyle = { color: '#3f3f46', fontSize: '15px', lineHeight: '1.7', margin: 0 };
 const buttonStyle = {
-  backgroundColor: '#6366f1',
+  backgroundColor: '#000000',
   borderRadius: '10px',
   color: '#ffffff',
   fontSize: '15px',
