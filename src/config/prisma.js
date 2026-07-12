@@ -96,6 +96,26 @@ if (process.env.NODE_ENV === 'production') {
     `);
     console.log('[DB] MessageReaction and ChatMessage schema migration complete ✓');
 
+    console.log('[DB] Verifying User table columns in PostgreSQL...');
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "User" 
+        ADD COLUMN IF NOT EXISTS "onboardingRole" TEXT,
+        ADD COLUMN IF NOT EXISTS "username" TEXT,
+        ADD COLUMN IF NOT EXISTS "currentRole" TEXT,
+        ADD COLUMN IF NOT EXISTS "lastSeen" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS "presenceStatus" TEXT DEFAULT 'OFFLINE',
+        ADD COLUMN IF NOT EXISTS "currency" TEXT;
+    `);
+
+    // Create unique index and index on username
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "User_username_key" ON "User"("username");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "User_username_idx" ON "User"("username");
+    `);
+    console.log('[DB] User table schema verification complete ✓');
+
     // Run column diagnostic check
     try {
       console.log('[DB] Running inline column diagnostics...');
