@@ -548,15 +548,32 @@ async function resendOTP(req, res) {
 
 // POST /api/auth/google
 async function googleLogin(req, res) {
+  console.log('[AUTH] STEP 1: Received request at /api/auth/google');
   try {
     const { accessToken } = req.body;
-    if (!accessToken) return res.status(400).json({ error: 'Access token is required' });
+    console.log('[AUTH] STEP 2: Received Google/Supabase token:', accessToken ? `${accessToken.substring(0, 15)}...[len=${accessToken.length}]` : 'undefined');
+    
+    if (!accessToken) {
+      console.error('[AUTH] STEP 2 Failed: Access token is missing');
+      return res.status(400).json({ 
+        error: 'Access token is required', 
+        code: 'INVALID_GOOGLE_TOKEN' 
+      });
+    }
 
     const authService = require('../services/auth.service');
+    console.log('[AUTH] STEP 3: Verifying token with Supabase...');
     const user = await authService.verifySession(accessToken);
+    console.log('[AUTH] STEP 4: Google/Supabase user successfully verified and extracted:', user.email);
 
+    console.log('[AUTH] STEP 5: Searching/syncing database for user:', user.email);
+    // User syncing is done inside verifySession -> findOrCreateUser, so user is already synced at this point
     const mentorData = user.mentor || null;
+    console.log('[AUTH] STEP 6: User created/found in DB. ID:', user.id);
 
+    console.log('[AUTH] STEP 7: Google session tokens sync completed. Generating response data...');
+    console.log('[AUTH] STEP 8: Response sent successfully');
+    
     res.json({
       user: {
         id: user.id,
@@ -573,8 +590,25 @@ async function googleLogin(req, res) {
       accessToken,
     });
   } catch (error) {
-    console.error('Google login verification failed:', error.message);
-    res.status(401).json({ error: error.message || 'Google authentication failed' });
+    console.error('[AUTH] Google login execution crashed / failed:', error);
+    
+    let errorCode = 'GOOGLE_VERIFICATION_FAILED';
+    const msg = error.message || '';
+    
+    if (msg.includes('expired')) {
+      errorCode = 'TOKEN_EXPIRED';
+    } else if (msg.includes('database') || msg.includes('prisma') || msg.includes('ForeignKeyConstraint') || msg.includes('constraint')) {
+      errorCode = 'DATABASE_ERROR';
+    } else if (msg.includes('invalid') || msg.includes('signature') || msg.includes('session')) {
+      errorCode = 'INVALID_GOOGLE_TOKEN';
+    } else if (msg.includes('client_id') || msg.includes('audience')) {
+      errorCode = 'GOOGLE_CLIENT_ID_MISMATCH';
+    }
+
+    res.status(401).json({ 
+      error: error.message || 'Google authentication failed', 
+      code: errorCode 
+    });
   }
 }
 

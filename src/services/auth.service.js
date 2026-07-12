@@ -70,6 +70,7 @@ async function verifySession(token) {
 
   // ── 1. Local dev bypass for seeded demo accounts ──────────────────────────
   if (token.startsWith('demo_')) {
+    console.log('[AUTH] [verifySession] Bypass triggered for demo token:', token);
     const prisma = require('../config/prisma');
     const email = token === 'demo_admin_token'   ? 'admin@helpmeman.com'   :
                   token === 'demo_mentor_token'  ? 'mentor@helpmeman.com'  :
@@ -82,11 +83,13 @@ async function verifySession(token) {
   // ── 2. Cache hit — skip Supabase network call entirely ────────────────────
   const cached = getCachedUser(token);
   if (cached) {
+    console.log('[AUTH] [verifySession] Cache hit for token. Skipping Supabase request.');
     return cached;
   }
 
   // ── 3. Promise Coalescing — deduplicate concurrent getUser requests ───────
   if (activePromises.has(token)) {
+    console.log('[AUTH] [verifySession] Duplicate verification request in flight. Coalescing.');
     return activePromises.get(token);
   }
 
@@ -97,19 +100,38 @@ async function verifySession(token) {
       if (innerCached) return innerCached;
 
       const t0 = Date.now();
+      const supabaseConfig = require('../config/env').supabase;
+      console.log(`[AUTH] [verifySession] Invoking supabase.auth.getUser. URL: ${supabaseConfig?.url}`);
+      
       const { data: { user }, error } = await supabase.auth.getUser(token);
       const elapsed = Date.now() - t0;
-      if (elapsed > 500) {
-        console.warn(`[AUTH] Supabase.getUser took ${elapsed}ms — possible network latency`);
+      console.log(`[AUTH] [verifySession] supabase.auth.getUser call completed in ${elapsed}ms`);
+
+      if (error) {
+        console.error('[AUTH] [verifySession] Supabase returned error:', {
+          message: error.message,
+          status: error.status,
+          name: error.name
+        });
+        throw new Error(error.message || 'Invalid or expired session');
       }
 
-      if (error || !user) {
-        throw new Error(error?.message || 'Invalid or expired session');
+      if (!user) {
+        console.error('[AUTH] [verifySession] Supabase did not return an error but returned null user.');
+        throw new Error('Invalid or expired session: user object is null');
       }
 
+      console.log(`[AUTH] [verifySession] Supabase token successfully verified. Email: ${user.email}, Supabase ID: ${user.id}`);
+
+      console.log('[AUTH] [verifySession] Syncing/Creating local database profile...');
       const localUser = await userService.findOrCreateUser(user);
+      console.log(`[AUTH] [verifySession] Database sync completed successfully. Local User ID: ${localUser.id}`);
+
       setCachedUser(token, localUser);
       return localUser;
+    } catch (err) {
+      console.error('[AUTH] [verifySession] Error during session verification:', err.message);
+      throw err;
     } finally {
       activePromises.delete(token);
     }
