@@ -26,56 +26,12 @@ async function register(req, res) {
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (existing) return res.status(409).json({ error: 'Email already registered' });
 
-    // Call Supabase Auth signUp
-    const { data, error } = await supabase.auth.signUp({
-      email: email.toLowerCase(),
-      password,
-      options: {
-        data: {
-          name,
-          role: 'USER',
-        },
-      },
-    });
-
-    if (error) {
-      return res.status(400).json({ error: error.message });
+    const otp = generateOTP();
+    await storeOTP(email.toLowerCase(), otp, 'signup');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`\n🔑 [DEV] OTP for ${email.toLowerCase()}: ${otp}\n`);
     }
-
-    if (data.session) {
-      // If email confirmation is disabled, user is confirmed immediately
-      const user = await prisma.user.create({
-        data: {
-          id: data.user.id,
-          name,
-          email: email.toLowerCase(),
-          passwordHash: '',
-          role: 'USER',
-          isEmailVerified: true,
-        },
-      });
-
-      try {
-        const { getOrCreatePreferences } = require('../services/notification.service');
-        await getOrCreatePreferences(user.id);
-      } catch (e) {}
-
-      return res.status(201).json({
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          onboardingRole: null,
-          username: null,
-          currentRole: null,
-          currency: null,
-        },
-        accessToken: data.session.access_token,
-        refreshToken: data.session.refresh_token,
-        requiresOTP: false,
-      });
-    }
+    await sendOtpEmail({ email: email.toLowerCase(), name, otp, purpose: 'signup' });
 
     res.json({ message: 'Verification OTP sent to your email', email: email.toLowerCase(), requiresOTP: true });
   } catch (error) {
@@ -93,14 +49,34 @@ async function verifySignupOTP(req, res) {
       return res.status(400).json({ error: 'Email and OTP are required' });
     }
 
-    const { data, error } = await supabase.auth.verifyOtp({
+    const result = await verifyOTP(email.toLowerCase(), otp, 'signup');
+    if (!result.valid) {
+      return res.status(400).json({ error: result.error || 'Invalid or expired OTP' });
+    }
+
+    // Create user in Supabase Auth via admin interface (email is verified via OTP)
+    const { data, error: createError } = await supabase.auth.admin.createUser({
       email: email.toLowerCase(),
-      token: otp,
-      type: 'signup',
+      password,
+      email_confirm: true,
+      user_metadata: {
+        name,
+        role: 'USER',
+      },
     });
 
-    if (error || !data.user || !data.session) {
-      return res.status(400).json({ error: error?.message || 'Verification failed' });
+    if (createError || !data.user) {
+      return res.status(400).json({ error: createError?.message || 'Failed to create user auth account' });
+    }
+
+    // Now log in to retrieve a session/tokens
+    const { data: sessionData, error: loginError } = await supabase.auth.signInWithPassword({
+      email: email.toLowerCase(),
+      password,
+    });
+
+    if (loginError || !sessionData.session) {
+      return res.status(400).json({ error: loginError?.message || 'Failed to authenticate user' });
     }
 
     let user = await prisma.user.findUnique({ where: { id: data.user.id } });
@@ -145,8 +121,8 @@ async function verifySignupOTP(req, res) {
         currentRole: user.currentRole || null,
         currency: user.currency || null,
       },
-      accessToken: data.session.access_token,
-      refreshToken: data.session.refresh_token,
+      accessToken: sessionData.session.access_token,
+      refreshToken: sessionData.session.refresh_token,
     });
   } catch (error) {
     console.error('Verify signup OTP error:', error);
@@ -529,11 +505,12 @@ async function resendOTP(req, res) {
     }
 
     if (purpose === 'signup') {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: email.toLowerCase(),
-      });
-      if (error) return res.status(400).json({ error: error.message });
+      const otp = generateOTP();
+      await storeOTP(email.toLowerCase(), otp, 'signup');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`\n🔑 [DEV] OTP for ${email.toLowerCase()}: ${otp}\n`);
+      }
+      await sendOtpEmail({ email: email.toLowerCase(), otp, purpose: 'signup' });
     } else if (purpose === 'reset') {
       const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase());
       if (error) return res.status(400).json({ error: error.message });
