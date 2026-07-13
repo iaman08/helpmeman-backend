@@ -826,18 +826,27 @@ async function getMeetingContext(bookingId) {
 }
 
 async function getOrCreateMeetingSession(userId, bookingId) {
+  // Validate that the booking exists and belongs to the requesting user (as student or mentor)
+  const booking = await prisma.booking.findFirst({
+    where: {
+      id: bookingId,
+      OR: [
+        { userId },
+        { mentor: { userId } }
+      ]
+    },
+    include: { mentor: { select: { displayName: true } } }
+  });
+  if (!booking) {
+    throw new Error('Booking not found or access denied');
+  }
+
   let session = await prisma.aiSession.findFirst({
     where: { userId, bookingId, sessionType: 'meeting' },
     select: { id: true, title: true, summary: true, createdAt: true }
   });
   if (!session) {
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: { mentor: { select: { displayName: true } } }
-    });
-    const title = booking
-      ? `Meeting Discussion: ${booking.mentor.displayName}`
-      : 'Meeting Discussion';
+    const title = `Meeting Discussion: ${booking.mentor.displayName}`;
 
     const newSession = await prisma.aiSession.create({
       data: {

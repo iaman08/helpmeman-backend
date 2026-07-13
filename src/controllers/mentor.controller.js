@@ -267,8 +267,13 @@ async function getMentorBookings(req, res) {
 async function addBookingNotes(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
-    const booking = await prisma.booking.update({ where: { id: req.params.id }, data: { mentorNotes: req.body.notes } });
-    res.json({ booking });
+    if (!mentor) return res.status(403).json({ error: 'Mentor profile not found' });
+
+    const booking = await prisma.booking.findFirst({ where: { id: req.params.id, mentorId: mentor.id } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    const updated = await prisma.booking.update({ where: { id: req.params.id }, data: { mentorNotes: req.body.notes } });
+    res.json({ booking: updated });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 

@@ -1,5 +1,6 @@
 const multer = require('multer');
 const { uploadImage, uploadDocument } = require('../services/upload.service');
+const prisma = require('../config/prisma');
 
 // Store in memory for Supabase upload
 const storage = multer.memoryStorage();
@@ -32,6 +33,21 @@ const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif
 
 async function uploadAttachment(req, res) {
   try {
+    const { threadId } = req.params;
+    if (!threadId) return res.status(400).json({ error: 'threadId is required' });
+
+    const thread = await prisma.chatThread.findUnique({
+      where: { id: threadId },
+      include: { mentor: { select: { userId: true } } },
+    });
+    if (!thread) return res.status(404).json({ error: 'Thread not found' });
+
+    const isMentor = req.user.role === 'MENTOR';
+    const authorized = isMentor
+      ? thread.mentor?.userId === req.user.id
+      : thread.userId === req.user.id;
+    if (!authorized) return res.status(403).json({ error: 'Forbidden' });
+
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const file = req.file;

@@ -130,7 +130,15 @@ async function createCategory(req, res) {
 
 async function updateCategory(req, res) {
   try {
-    const cat = await prisma.category.update({ where: { id: req.params.id }, data: req.body });
+    const { name, slug, icon, description, isActive } = req.body;
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (slug !== undefined) data.slug = slug;
+    if (icon !== undefined) data.icon = icon;
+    if (description !== undefined) data.description = description;
+    if (isActive !== undefined) data.isActive = isActive;
+
+    const cat = await prisma.category.update({ where: { id: req.params.id }, data });
     res.json({ category: cat });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }

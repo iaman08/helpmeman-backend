@@ -55,7 +55,7 @@ async function verifyPayment(req, res) {
     const valid = verifyPaymentSignature({ orderId: razorpay_order_id, paymentId: razorpay_payment_id, signature: razorpay_signature });
     if (!valid) return res.status(400).json({ error: 'Invalid payment' });
 
-    const booking = await prisma.booking.findFirst({ where: { id: req.params.id } });
+    const booking = await prisma.booking.findFirst({ where: { id: req.params.id, userId: req.user.id } });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     const fullBooking = await prisma.booking.findUnique({ where: { id: booking.id }, include: { user: true, mentor: { include: { user: true } } } });

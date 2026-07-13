@@ -16,6 +16,23 @@ function emitTo(req, room, event, data) {
   if (req.app.io) req.app.io.to(room).emit(event, data);
 }
 
+// ─── Helper: check thread access authorization ──────────────────────────────
+async function checkThreadAccess(threadId, user) {
+  const thread = await prisma.chatThread.findUnique({
+    where: { id: threadId },
+    include: { mentor: { select: { userId: true } } },
+  });
+  if (!thread) return { error: 'Thread not found', status: 404 };
+
+  const isMentor = user.role === 'MENTOR';
+  const authorized = isMentor
+    ? thread.mentor?.userId === user.id
+    : thread.userId === user.id;
+
+  if (!authorized) return { error: 'Forbidden', status: 403 };
+  return { thread };
+}
+
 // ─── Thread includes for list vs single view ──────────────────────────────────
 const THREAD_LIST_INCLUDE = {
   messages: {
@@ -108,6 +125,9 @@ async function getThread(req, res) {
 // ─── GET /chat/threads/:threadId/messages ────────────────────────────────────
 async function getMessages(req, res) {
   try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
     const { cursor, limit = 40 } = req.query;
     const result = await getThreadMessages(req.params.threadId, { cursor, limit: Number(limit) });
     res.json(result);
@@ -214,6 +234,14 @@ async function editMessageHandler(req, res) {
     const { body } = req.body;
     if (!body || !body.trim()) return res.status(400).json({ error: 'Body required' });
 
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const message = await prisma.chatMessage.findUnique({ where: { id: req.params.messageId } });
+    if (!message || message.threadId !== req.params.threadId) {
+      return res.status(400).json({ error: 'Message not found in this thread' });
+    }
+
     const updated = await editMessage(req.params.messageId, req.user.id, body.trim());
 
     emitTo(req, `chat:${req.params.threadId}`, 'message_edited', {
@@ -235,6 +263,14 @@ async function editMessageHandler(req, res) {
 // ─── DELETE /chat/threads/:threadId/messages/:messageId ──────────────────────
 async function deleteMessageHandler(req, res) {
   try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const message = await prisma.chatMessage.findUnique({ where: { id: req.params.messageId } });
+    if (!message || message.threadId !== req.params.threadId) {
+      return res.status(400).json({ error: 'Message not found in this thread' });
+    }
+
     await deleteMessage(req.params.messageId, req.user.id);
 
     emitTo(req, `chat:${req.params.threadId}`, 'message_deleted', {
@@ -253,6 +289,9 @@ async function deleteMessageHandler(req, res) {
 // ─── PUT /chat/threads/:threadId/read ────────────────────────────────────────
 async function markRead(req, res) {
   try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
     const count = await markThreadRead(req.params.threadId, req.user.id);
 
     // Notify sender(s) that messages have been read (for read receipts)
@@ -273,6 +312,9 @@ async function markRead(req, res) {
 // ─── POST /chat/threads/:threadId/close ──────────────────────────────────────
 async function closeThreadHandler(req, res) {
   try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
     const thread = await closeThread(req.params.threadId);
     emitTo(req, `chat:${req.params.threadId}`, 'thread_locked', {
       threadId: req.params.threadId,
@@ -289,6 +331,15 @@ async function addReactionHandler(req, res) {
   try {
     const { emoji } = req.body;
     if (!emoji) return res.status(400).json({ error: 'Emoji is required' });
+
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const message = await prisma.chatMessage.findUnique({ where: { id: req.params.messageId } });
+    if (!message || message.threadId !== req.params.threadId) {
+      return res.status(400).json({ error: 'Message not found in this thread' });
+    }
+
     const result = await addReaction(req.params.messageId, req.user.id, emoji);
     
     if (result.action === 'removed') {
@@ -318,6 +369,15 @@ async function addReactionHandler(req, res) {
 async function removeReactionHandler(req, res) {
   try {
     const { emoji } = req.params;
+
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const message = await prisma.chatMessage.findUnique({ where: { id: req.params.messageId } });
+    if (!message || message.threadId !== req.params.threadId) {
+      return res.status(400).json({ error: 'Message not found in this thread' });
+    }
+
     await removeReaction(req.params.messageId, req.user.id, emoji);
     emitTo(req, `chat:${req.params.threadId}`, 'reaction_removed', {
       threadId: req.params.threadId,

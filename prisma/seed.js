@@ -34,168 +34,233 @@ async function main() {
   });
   console.log(`✅ Admin: ${admin.email}`);
 
-  // ─── Mentors ───
+  // ───   // Clear old mentors to keep the database fresh with the new set
+  const oldMentorEmails = [
+    'aarav.mentor@helpmeman.com',
+    'priya.mentor@helpmeman.com',
+    'rohan.mentor@helpmeman.com',
+    'ananya.mentor@helpmeman.com',
+    'vikram.mentor@helpmeman.com',
+    'meera.mentor@helpmeman.com',
+    'arjun.mentor@helpmeman.com',
+    'kavya.mentor@helpmeman.com'
+  ];
+
+  const oldUsers = await prisma.user.findMany({
+    where: { email: { in: oldMentorEmails } },
+    select: { id: true }
+  });
+  const oldUserIds = oldUsers.map(u => u.id);
+
+  if (oldUserIds.length > 0) {
+    const oldMentors = await prisma.mentor.findMany({
+      where: { userId: { in: oldUserIds } },
+      select: { id: true }
+    });
+    const oldMentorIds = oldMentors.map(m => m.id);
+
+    if (oldMentorIds.length > 0) {
+      await prisma.chatMessage.deleteMany({
+        where: { thread: { mentorId: { in: oldMentorIds } } }
+      });
+      await prisma.chatThread.deleteMany({ where: { mentorId: { in: oldMentorIds } } });
+      await prisma.availability.deleteMany({ where: { mentorId: { in: oldMentorIds } } });
+      await prisma.review.deleteMany({ where: { mentorId: { in: oldMentorIds } } });
+      
+      const oldBookings = await prisma.booking.findMany({
+        where: { mentorId: { in: oldMentorIds } },
+        select: { id: true }
+      });
+      const oldBookingIds = oldBookings.map(b => b.id);
+      if (oldBookingIds.length > 0) {
+        await prisma.aiSession.updateMany({
+          where: { bookingId: { in: oldBookingIds } },
+          data: { bookingId: null }
+        });
+        await prisma.booking.deleteMany({ where: { id: { in: oldBookingIds } } });
+      }
+
+      await prisma.verificationDoc.deleteMany({ where: { mentorId: { in: oldMentorIds } } });
+      await prisma.complaint.deleteMany({ where: { mentorId: { in: oldMentorIds } } });
+      await prisma.earning.deleteMany({ where: { mentorId: { in: oldMentorIds } } });
+      await prisma.notification.deleteMany({ where: { mentorId: { in: oldMentorIds } } });
+
+      await prisma.mentor.deleteMany({ where: { id: { in: oldMentorIds } } });
+    }
+
+    await prisma.mentorProfile.deleteMany({ where: { mentorId: { in: oldUserIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: oldUserIds } } });
+  }
+
   const mentorPw = await hashPw('password123');
 
   const mentorProfiles = [
     {
-      user: { name: 'Aarav Mehta', email: 'aarav.mentor@helpmeman.com' },
+      user: { name: 'Anwesh das', email: 'anwesh.mentor@helpmeman.com' },
       mentor: {
-        displayName: 'Aarav Mehta',
-        bio: 'IIT Bombay CS \'23. Interned at Google and Jane Street. Currently SDE-2 at Google Bangalore. I help students navigate JEE prep, branch selection, and the transition from college to top tech companies. I\'ve been through the exact pipeline — JEE AIR 156, CS at IITB, Google internship, PPO, and now working on Search infra.',
-        institutionType: 'COLLEGE', institutionName: 'IIT Bombay', institutionEmail: 'aarav@iitb.ac.in',
-        department: 'Computer Science', graduationYear: 2023,
-        currentRole: 'SDE-2', company: 'Google',
-        linkedinUrl: 'https://linkedin.com/in/aaravmehta',
-        expertise: ['JEE Preparation', 'DSA', 'System Design', 'Google Interview', 'Competitive Programming'],
-        pricePerSession: 49900, sessionDuration: 60, rating: 4.8, totalSessions: 47,
-        categorySlug: 'jee-neet-prep',
+        displayName: 'Anwesh das',
+        bio: 'Software Engineer with a 1Cr+ package at Rubrik. Specialist in System Design, Data Structures, and Algorithms (DSA). Helping students prepare for high-paying big tech roles and crack FAANG/Tier-1 engineering interviews.',
+        institutionType: 'COMPANY',
+        institutionName: 'Rubrik',
+        institutionEmail: 'anwesh@rubrik.com',
+        department: 'Computer Science',
+        graduationYear: 2023,
+        currentRole: 'Software Engineer',
+        company: 'Rubrik',
+        linkedinUrl: 'https://linkedin.com/in/anweshdas',
+        expertise: ['System Design', 'DSA', 'Tech Prep', 'Big Tech Interviews'],
+        pricePerSession: 49900,
+        sessionDuration: 45,
+        rating: 5.0,
+        totalSessions: 48,
+        categorySlug: 'faang',
         location: 'Bangalore, India',
-        activeStatus: 'Active today',
-        averageResponseTime: '2 hours',
-        languages: 'Speaks English and Hindi',
-        experienceYears: 3,
-        isOnline: true,
-      },
-    },
-    {
-      user: { name: 'Priya Sharma', email: 'priya.mentor@helpmeman.com' },
-      mentor: {
-        displayName: 'Dr. Priya Sharma',
-        bio: 'AIIMS Delhi \'21, currently PG resident in Cardiology. Cracked NEET with AIR 89. I guide pre-med students through NEET strategy, MBBS life at AIIMS, and choosing the right PG specialization. My approach is structured — I share the exact study plans, resources, and mindset shifts that worked for me.',
-        institutionType: 'COLLEGE', institutionName: 'AIIMS Delhi', institutionEmail: 'priya@aiims.edu',
-        department: 'Cardiology', graduationYear: 2021,
-        currentRole: 'PG Resident', company: 'AIIMS Delhi',
-        linkedinUrl: 'https://linkedin.com/in/drpriyasharma',
-        expertise: ['NEET Preparation', 'MBBS Guidance', 'PG Entrance', 'Medical Residency', 'Study Planning'],
-        pricePerSession: 29900, sessionDuration: 30, rating: 4.9, totalSessions: 63,
-        categorySlug: 'jee-neet-prep',
-        location: 'Delhi, India',
-        activeStatus: 'Active this week',
-        averageResponseTime: '6 hours',
-        languages: 'Speaks English and Hindi',
-        experienceYears: 5,
-        isOnline: true,
-      },
-    },
-    {
-      user: { name: 'Rohan Kapoor', email: 'rohan.mentor@helpmeman.com' },
-      mentor: {
-        displayName: 'Rohan Kapoor',
-        bio: 'BITS Pilani \'20, ex-Amazon, now Senior PM at Microsoft. I\'ve navigated the switch from SDE to Product Management and can help you with PM interview prep, resume building, and understanding what top tech companies look for. I also mentor on side-project strategy and standing out in campus placements.',
-        institutionType: 'COMPANY', institutionName: 'Microsoft', institutionEmail: 'rohan@microsoft.com',
-        department: 'Product Management', graduationYear: 2020,
-        currentRole: 'Senior Product Manager', company: 'Microsoft',
-        linkedinUrl: 'https://linkedin.com/in/rohankapoor',
-        expertise: ['Product Management', 'PM Interviews', 'Career Switching', 'Resume Building', 'BITS Pilani'],
-        pricePerSession: 39900, sessionDuration: 45, rating: 4.7, totalSessions: 35,
-        categorySlug: 'campus-placements',
-        location: 'Mumbai, India',
         activeStatus: 'Active today',
         averageResponseTime: '1 hour',
         languages: 'Speaks English and Hindi',
-        experienceYears: 6,
-        isOnline: false,
+        experienceYears: 3,
+        isOnline: true,
+        avatar: '/mentor3.jpg',
       },
     },
     {
-      user: { name: 'Ananya Reddy', email: 'ananya.mentor@helpmeman.com' },
+      user: { name: 'Prakhar Shrivastava', email: 'prakhar.mentor@helpmeman.com' },
       mentor: {
-        displayName: 'Ananya Reddy',
-        bio: 'NLU Bangalore \'22, currently Associate at AZB & Partners. Cracked CLAT with AIR 23. I help aspiring law students with CLAT preparation, choosing the right NLU, and building a legal career in corporate law. I\'ve worked on M&A deals worth ₹2000 Cr+ and can give you a realistic picture of BigLaw life in India.',
-        institutionType: 'COLLEGE', institutionName: 'NLU Bangalore', institutionEmail: 'ananya@nlu.ac.in',
-        department: 'Corporate Law', graduationYear: 2022,
-        currentRole: 'Associate', company: 'AZB & Partners',
-        linkedinUrl: 'https://linkedin.com/in/ananyareddy',
-        expertise: ['CLAT Preparation', 'Corporate Law', 'NLU Life', 'Legal Career', 'M&A'],
-        pricePerSession: 24900, sessionDuration: 30, rating: 4.6, totalSessions: 28,
-        categorySlug: 'law',
-        location: 'Bangalore, India',
-        activeStatus: 'Active this week',
-        averageResponseTime: '1 day',
-        languages: 'Speaks English and Telugu',
-        experienceYears: 4,
-        isOnline: false,
-      },
-    },
-    {
-      user: { name: 'Vikram Singh', email: 'vikram.mentor@helpmeman.com' },
-      mentor: {
-        displayName: 'Vikram Singh',
-        bio: 'IIT Delhi \'19, ex-Goldman Sachs quant, now ML Engineer at Meta. I specialize in helping engineers transition into ML/AI roles and quant finance. If you\'re deciding between finance and tech, or want to break into FAANG as an ML engineer, I share a battle-tested playbook from my own journey.',
-        institutionType: 'COMPANY', institutionName: 'Meta', institutionEmail: 'vikram@meta.com',
-        department: 'Machine Learning', graduationYear: 2019,
-        currentRole: 'ML Engineer', company: 'Meta',
-        linkedinUrl: 'https://linkedin.com/in/vikramsingh',
-        expertise: ['Machine Learning', 'Quant Finance', 'FAANG Interviews', 'IIT Guidance', 'Career Transition'],
-        pricePerSession: 59900, sessionDuration: 60, rating: 4.9, totalSessions: 52,
-        categorySlug: 'faang',
-        location: 'San Francisco, USA',
+        displayName: 'Prakhar Shrivastava',
+        bio: 'Co-founder at TrenchersAI, IIT Madras alum. Mentoring on tech architecture, operations strategy, and raising early-stage capital. I help students and founders turn ideas into scalable startups.',
+        institutionType: 'STARTUP',
+        institutionName: 'TrenchersAI',
+        institutionEmail: 'prakhar@trenchers.ai',
+        department: 'Aerospace Engineering',
+        graduationYear: 2022,
+        currentRole: 'Co-founder',
+        company: 'TrenchersAI',
+        linkedinUrl: 'https://linkedin.com/in/prakharshrivastava',
+        expertise: ['Tech', 'Ops', 'Startup Strategy', 'Early Stage Fundraising'],
+        pricePerSession: 99900,
+        sessionDuration: 60,
+        rating: 5.0,
+        totalSessions: 36,
+        categorySlug: 'startup',
+        location: 'Chennai, India',
         activeStatus: 'Active yesterday',
         averageResponseTime: '3 hours',
         languages: 'Speaks English and Hindi',
-        experienceYears: 7,
+        experienceYears: 4,
         isOnline: true,
+        avatar: '/mentor5.jpeg',
       },
     },
     {
-      user: { name: 'Meera Joshi', email: 'meera.mentor@helpmeman.com' },
+      user: { name: 'Aryan Gupta', email: 'aryan.mentor@helpmeman.com' },
       mentor: {
-        displayName: 'Meera Joshi',
-        bio: 'IIT Madras \'20, YC-backed founder building in edtech. Raised $2M seed. I mentor on early-stage startup building — from idea validation to your first 100 users, fundraising, and product-market fit. If you\'re a student with a startup idea or a young founder figuring out the early chaos, I\'ve been there.',
-        institutionType: 'STARTUP', institutionName: 'EdTech Startup (YC W23)', institutionEmail: 'meera@startup.io',
-        department: 'Founding CEO', graduationYear: 2020,
-        currentRole: 'Founder & CEO', company: 'LearnLoop (YC W23)',
-        linkedinUrl: 'https://linkedin.com/in/meerajoshi',
-        expertise: ['Startup Building', 'Fundraising', 'Product-Market Fit', 'EdTech', 'IIT to Startup'],
-        pricePerSession: 49900, sessionDuration: 45, rating: 4.8, totalSessions: 31,
-        categorySlug: 'startup',
-        location: 'Chennai, India',
-        activeStatus: 'Active today',
-        averageResponseTime: '2 hours',
-        languages: 'Speaks English and Tamil',
-        experienceYears: 6,
-        isOnline: true,
-      },
-    },
-    {
-      user: { name: 'Arjun Patel', email: 'arjun.mentor@helpmeman.com' },
-      mentor: {
-        displayName: 'Arjun Patel',
-        bio: 'NIT Trichy \'21, SDE-1 at Amazon. I focus on helping Tier-2 college students crack top product companies. I didn\'t have the IIT tag, so I had to work twice as hard — and I can show you the exact system I used for DSA practice, off-campus applications, and interview prep that landed me Amazon.',
-        institutionType: 'COMPANY', institutionName: 'Amazon', institutionEmail: 'arjun@amazon.com',
-        department: 'Software Engineering', graduationYear: 2021,
-        currentRole: 'SDE-1', company: 'Amazon',
-        linkedinUrl: 'https://linkedin.com/in/arjunpatel',
-        expertise: ['DSA', 'Off-Campus Placement', 'Amazon Interview', 'NIT Life', 'Tier-2 to FAANG'],
-        pricePerSession: 19900, sessionDuration: 30, rating: 4.5, totalSessions: 89,
+        displayName: 'Aryan Gupta',
+        bio: 'SDE at Cohesity. Specialist in startup growth, scaling tech infrastructure, and early-stage fundraising strategies. Helping builders design robust products and plan their career trajectories.',
+        institutionType: 'COMPANY',
+        institutionName: 'Cohesity',
+        institutionEmail: 'aryan@cohesity.com',
+        department: 'Information Technology',
+        graduationYear: 2023,
+        currentRole: 'SDE',
+        company: 'Cohesity',
+        linkedinUrl: 'https://linkedin.com/in/aryangupta',
+        expertise: ['Startups', 'Fundraising', 'Backend Development', 'Scale'],
+        pricePerSession: 59900,
+        sessionDuration: 30,
+        rating: 5.0,
+        totalSessions: 24,
         categorySlug: 'faang',
         location: 'Pune, India',
         activeStatus: 'Active this week',
-        averageResponseTime: '5 hours',
-        languages: 'Speaks English, Hindi and Gujarati',
-        experienceYears: 5,
+        averageResponseTime: '4 hours',
+        languages: 'Speaks English and Hindi',
+        experienceYears: 3,
         isOnline: false,
+        avatar: '/mentor6.jpeg',
       },
     },
     {
-      user: { name: 'Kavya Nair', email: 'kavya.mentor@helpmeman.com' },
+      user: { name: 'Vineet', email: 'vineet.mentor@helpmeman.com' },
       mentor: {
-        displayName: 'Kavya Nair',
-        bio: 'SRCC Delhi \'20, Analyst at Goldman Sachs IBD. I guide commerce students on how to break into investment banking from Indian colleges. From building the right profile in college to cracking IB interviews, I cover the entire pipeline. I also help with CA vs MBA vs IB decision-making.',
-        institutionType: 'COMPANY', institutionName: 'Goldman Sachs', institutionEmail: 'kavya@goldmansachs.com',
-        department: 'Investment Banking', graduationYear: 2020,
-        currentRole: 'Analyst', company: 'Goldman Sachs',
-        linkedinUrl: 'https://linkedin.com/in/kavyanair',
-        expertise: ['Investment Banking', 'Finance Career', 'IB Interviews', 'CA vs MBA', 'Commerce Guidance'],
-        pricePerSession: 44900, sessionDuration: 45, rating: 4.7, totalSessions: 41,
-        categorySlug: 'mba',
-        location: 'Mumbai, India',
+        displayName: 'Vineet',
+        bio: "GSoC '25 & '26 mentor, student at IIT Roorkee. Expert in Open Source contribution, GSoC prep, and campus placements. I help students select the right open source projects and write winning proposals.",
+        institutionType: 'COLLEGE',
+        institutionName: 'IIT Roorkee',
+        institutionEmail: 'vineet@iitr.ac.in',
+        department: 'Computer Science',
+        graduationYear: 2025,
+        currentRole: 'GSoC Mentor / Student',
+        company: 'IIT Roorkee',
+        linkedinUrl: 'https://linkedin.com/in/vineetiitr',
+        expertise: ['Open Source', 'GSoC', 'C++', 'Algorithms'],
+        pricePerSession: 29900,
+        sessionDuration: 45,
+        rating: 5.0,
+        totalSessions: 62,
+        categorySlug: 'campus-placements',
+        location: 'Roorkee, India',
+        activeStatus: 'Active today',
+        averageResponseTime: '2 hours',
+        languages: 'Speaks English and Hindi',
+        experienceYears: 2,
+        isOnline: true,
+        avatar: '/mentor1.png',
+      },
+    },
+    {
+      user: { name: 'Sunny Sharma', email: 'sunny.mentor@helpmeman.com' },
+      mentor: {
+        displayName: 'Sunny Sharma',
+        bio: 'Tech Lead at Salesforce. Expert in backend engineering, cloud architectures, and database design. Mentoring on how to transition to leadership roles and pass top tech company technical rounds.',
+        institutionType: 'COMPANY',
+        institutionName: 'Salesforce',
+        institutionEmail: 'sunny@salesforce.com',
+        department: 'Computer Engineering',
+        graduationYear: 2019,
+        currentRole: 'Tech Lead',
+        company: 'Salesforce',
+        linkedinUrl: 'https://linkedin.com/in/sunnysharma',
+        expertise: ['Backend', 'Cloud', 'System Architecture', 'Salesforce Interview'],
+        pricePerSession: 34900,
+        sessionDuration: 45,
+        rating: 4.0,
+        totalSessions: 31,
+        categorySlug: 'faang',
+        location: 'Bangalore, India',
         activeStatus: 'Active yesterday',
         averageResponseTime: '2 hours',
-        languages: 'Speaks English and Malayalam',
-        experienceYears: 6,
+        languages: 'Speaks English and Hindi',
+        experienceYears: 7,
+        isOnline: true,
+        avatar: '/mentor4.jpg',
+      },
+    },
+    {
+      user: { name: 'Omi Shourya', email: 'omi.mentor@helpmeman.com' },
+      mentor: {
+        displayName: 'Omi Shourya',
+        bio: 'Electrical Engineer, DTU student. Specializing in electrical engineering core, hardware-software integration, and core engineering prep. Guide for students pursuing careers in core engineering sectors.',
+        institutionType: 'COLLEGE',
+        institutionName: 'Delhi Technical University',
+        institutionEmail: 'omi@dtu.ac.in',
+        department: 'Electrical Engineering',
+        graduationYear: 2024,
+        currentRole: 'Electrical Engineer',
+        company: 'Delhi Technical University',
+        linkedinUrl: 'https://linkedin.com/in/omishourya',
+        expertise: ['Electrical Engineering', 'EE Core', 'Hardware Integration'],
+        pricePerSession: 29900,
+        sessionDuration: 30,
+        rating: 5.0,
+        totalSessions: 55,
+        categorySlug: 'campus-placements',
+        location: 'Delhi, India',
+        activeStatus: 'Active this week',
+        averageResponseTime: '5 hours',
+        languages: 'Speaks English and Hindi',
+        experienceYears: 2,
         isOnline: false,
+        avatar: '/mentor7.jpeg',
       },
     },
     {
