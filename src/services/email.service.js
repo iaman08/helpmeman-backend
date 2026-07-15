@@ -18,6 +18,7 @@ const {
   renderMentorApprovalEmail,
   renderWelcomeEmail,
   renderWeeklyUpdateEmail,
+  renderBookingConfirmationEmail,
 } = require('../emails/transactionalEmails');
 
 
@@ -370,6 +371,67 @@ async function sendWeeklyUpdateEmail(user, highlights) {
   return sendEmail({ to: user.email, subject: 'Your weekly HelpMeMan update', html, userId: user.id, templateType: 'weekly_update' });
 }
 
+/**
+ * Send booking confirmation emails to BOTH mentor and mentee.
+ * Called immediately after payment is verified and Meet event is created.
+ *
+ * @param {Object} params
+ * @param {Object} params.booking   - Full booking with user + mentor
+ * @param {Object} params.mentor    - Mentor object (with displayName, user.email, googleCalendarTimezone)
+ * @param {Object} params.user      - Mentee user object
+ * @param {string} params.meetLink  - Google Meet URL (may be null)
+ */
+async function sendBookingConfirmationEmails({ booking, mentor, user, meetLink }) {
+  const timezone = mentor.googleCalendarTimezone || 'Asia/Kolkata';
+  const commonProps = {
+    mentorName: mentor.displayName,
+    menteeName: user.name,
+    scheduledAt: booking.scheduledAt,
+    durationMinutes: booking.durationMinutes,
+    meetLink,
+    timezone,
+    bookingId: booking.id,
+  };
+
+  // Send to mentee
+  try {
+    const menteeHtml = await renderBookingConfirmationEmail({
+      ...commonProps,
+      recipientName: user.name,
+      role: 'mentee',
+    });
+    await sendEmail({
+      to: user.email,
+      subject: `Your session with ${mentor.displayName} is confirmed! — HelpMeMan`,
+      html: menteeHtml,
+      userId: user.id,
+      templateType: 'booking_confirmed_mentee',
+    });
+  } catch (err) {
+    console.error('[EMAIL] Failed to send mentee confirmation:', err.message);
+  }
+
+  // Send to mentor
+  try {
+    const mentorEmail = mentor.user?.email || mentor.institutionEmail;
+    const mentorUserId = mentor.userId;
+    const mentorHtml = await renderBookingConfirmationEmail({
+      ...commonProps,
+      recipientName: mentor.displayName,
+      role: 'mentor',
+    });
+    await sendEmail({
+      to: mentorEmail,
+      subject: `New session booked: ${user.name} — HelpMeMan`,
+      html: mentorHtml,
+      userId: mentorUserId,
+      templateType: 'booking_confirmed_mentor',
+    });
+  } catch (err) {
+    console.error('[EMAIL] Failed to send mentor confirmation:', err.message);
+  }
+}
+
 // Legacy template exports for backward compatibility
 function welcomeEmailTemplate(user) {
   return `<p>Welcome ${user.name}</p>`;
@@ -468,6 +530,7 @@ module.exports = {
   sendMentorUnderReviewEmail,
   sendMentorApplicationToAdminEmail,
   sendWeeklyUpdateEmail,
+  sendBookingConfirmationEmails,
   retryFailedEmails,
   logEmailDelivery,
   welcomeEmailTemplate,

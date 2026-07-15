@@ -46,6 +46,7 @@ const categoryRoutes = require('./routes/category.routes');
 const aiRoutes = require('./routes/ai.routes');
 const publicAiRoutes = require('./routes/publicAi.routes');
 const onboardingRoutes = require('./routes/onboarding.routes');
+const googleRoutes = require('./routes/google.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -160,6 +161,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/public/ai', publicAiRoutes);
+app.use('/api/google', googleRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {

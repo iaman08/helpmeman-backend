@@ -408,7 +408,12 @@ model Mentor {
   isActive            Boolean          @default(false)
   pricePerSession     Int
   sessionDuration     Int              @default(30)
-  googleCalendarId    String?
+  googleCalendarId         String?
+  googleCalendarConnected  Boolean          @default(false)
+  googleAccessToken        String?          @db.Text  // AES-256-GCM encrypted
+  googleRefreshToken       String?          @db.Text  // AES-256-GCM encrypted
+  googleTokenExpiresAt     DateTime?
+  googleCalendarTimezone   String?          @default("Asia/Kolkata")
   totalSessions       Int              @default(0)
   rating              Float            @default(0)
 
@@ -435,8 +440,20 @@ model Mentor {
   earnings            Earning[]
   chatThreads         ChatThread[]
   complaints          Complaint[]
+  blockedDates        BlockedDate[]
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
+}
+
+model BlockedDate {
+  id        String   @id @default(cuid())
+  mentorId  String
+  mentor    Mentor   @relation(fields: [mentorId], references: [id])
+  date      DateTime // blocked day (UTC midnight)
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([mentorId, date])
 }
 
 model MentorOnboardingAnswer {

@@ -192,6 +192,14 @@ async function updateOwnProfile(req, res) {
       }
     }
 
+    // If mentor updates displayName, also sync it with the parent User record's name
+    if (displayName !== undefined) {
+      await prisma.user.update({
+        where: { id: req.user.id },
+        data: { name: displayName }
+      });
+    }
+
     const mentorRaw = await prisma.mentor.update({
       where: { userId: req.user.id },
       data,
@@ -303,4 +311,94 @@ async function getMentorNotifs(req, res) {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 
-module.exports = { searchMentors, getMentorPublic, getMentorAvailability, getMentorReviews, getOwnProfile, updateOwnProfile, updateAvatar, uploadDoc, getAvailability, setAvailability, getMentorBookings, addBookingNotes, getEarnings, getMentorStats, getMentorNotifs };
+// ── Google Calendar Status ────────────────────────────────────────────────────
+async function getGoogleCalendarStatus(req, res) {
+  try {
+    const mentor = await prisma.mentor.findUnique({
+      where: { userId: req.user.id },
+      select: { googleCalendarConnected: true, googleCalendarTimezone: true },
+    });
+    if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
+    res.json({
+      connected: mentor.googleCalendarConnected ?? false,
+      timezone: mentor.googleCalendarTimezone || 'Asia/Kolkata',
+    });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+}
+
+// ── Blocked Dates ─────────────────────────────────────────────────────────────
+async function getBlockedDates(req, res) {
+  try {
+    const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
+
+    const dates = await prisma.blockedDate.findMany({
+      where: { mentorId: mentor.id, date: { gte: new Date() } },
+      orderBy: { date: 'asc' },
+    });
+    res.json({ blockedDates: dates });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+}
+
+async function addBlockedDate(req, res) {
+  try {
+    const { date, reason } = req.body;
+    if (!date) return res.status(400).json({ error: 'Date is required' });
+
+    const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
+
+    // Store as UTC midnight of the given date
+    const blockedDay = new Date(date);
+    blockedDay.setUTCHours(0, 0, 0, 0);
+
+    // Prevent duplicates
+    const existing = await prisma.blockedDate.findFirst({
+      where: { mentorId: mentor.id, date: blockedDay },
+    });
+    if (existing) return res.status(409).json({ error: 'This date is already blocked' });
+
+    const blocked = await prisma.blockedDate.create({
+      data: { mentorId: mentor.id, date: blockedDay, reason: reason || null },
+    });
+    res.status(201).json({ blockedDate: blocked });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+}
+
+async function deleteBlockedDate(req, res) {
+  try {
+    const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
+
+    const blocked = await prisma.blockedDate.findFirst({
+      where: { id: req.params.dateId, mentorId: mentor.id },
+    });
+    if (!blocked) return res.status(404).json({ error: 'Blocked date not found' });
+
+    await prisma.blockedDate.delete({ where: { id: req.params.dateId } });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+}
+
+module.exports = {
+  searchMentors,
+  getMentorPublic,
+  getMentorAvailability,
+  getMentorReviews,
+  getOwnProfile,
+  updateOwnProfile,
+  updateAvatar,
+  uploadDoc,
+  getAvailability,
+  setAvailability,
+  getMentorBookings,
+  addBookingNotes,
+  getEarnings,
+  getMentorStats,
+  getMentorNotifs,
+  getGoogleCalendarStatus,
+  getBlockedDates,
+  addBlockedDate,
+  deleteBlockedDate,
+};
+

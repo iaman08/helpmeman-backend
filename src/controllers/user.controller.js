@@ -117,17 +117,37 @@ async function getBookingDetail(req, res) {
 
 async function cancelBooking(req, res) {
   try {
-    const booking = await prisma.booking.findFirst({ where: { id: req.params.id, userId: req.user.id } });
+    const booking = await prisma.booking.findFirst({
+      where: { id: req.params.id, userId: req.user.id },
+      include: {
+        mentor: { include: { user: { select: { id: true, email: true } } } },
+        user: true,
+      },
+    });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    if (booking.status !== 'CONFIRMED' && booking.status !== 'PENDING') return res.status(400).json({ error: 'Cannot cancel this booking' });
+    if (booking.status !== 'CONFIRMED' && booking.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Cannot cancel this booking' });
+    }
 
     const hoursUntil = (new Date(booking.scheduledAt) - Date.now()) / (1000 * 60 * 60);
     const refundEligible = hoursUntil > 24;
 
     await prisma.booking.update({
       where: { id: booking.id },
-      data: { status: 'CANCELLED', cancelledBy: req.user.id, paymentStatus: refundEligible ? 'REFUNDED' : booking.paymentStatus },
+      data: {
+        status: 'CANCELLED',
+        cancelledBy: req.user.id,
+        paymentStatus: refundEligible ? 'REFUNDED' : booking.paymentStatus,
+      },
     });
+
+    // Cancel Google Calendar event (non-blocking)
+    if (booking.googleEventId) {
+      const { cancelMeetingEvent } = require('../services/googleMeet.service');
+      cancelMeetingEvent(booking.mentor, booking.googleEventId)
+        .catch((err) => console.error('[user.cancelBooking] Calendar cancel error:', err.message));
+    }
+
     res.json({ message: 'Booking cancelled', refunded: refundEligible });
   } catch (e) { res.status(500).json({ error: 'Cancellation failed' }); }
 }

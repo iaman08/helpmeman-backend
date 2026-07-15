@@ -58,6 +58,11 @@ module.exports = {
     user: process.env.GMAIL_USER,
     appPassword: process.env.GMAIL_APP_PASSWORD,
   },
+  // AES-256-GCM key for encrypting OAuth tokens in the DB
+  // Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  tokenEncryption: {
+    key: process.env.TOKEN_ENCRYPTION_KEY,
+  },
   // Web Push (VAPID) — replaces Firebase Cloud Messaging
   // Generate keys once with: npx web-push generate-vapid-keys
   vapid: {

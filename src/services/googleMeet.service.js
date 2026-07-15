@@ -1,62 +1,173 @@
+/**
+ * Google Meet / Calendar Service
+ *
+ * Creates, updates, and cancels Google Calendar events with Google Meet
+ * conference links — using the *mentor's own* connected Google account.
+ *
+ * Falls back gracefully if the mentor hasn't connected Google Calendar,
+ * returning { googleEventId: null, meetLink: null }.
+ */
+
 const { google } = require('googleapis');
-const config = require('../config/env');
+const { getAuthedClientForMentor } = require('./googleOAuth.service');
 
-const oauth2Client = new google.auth.OAuth2(
-  config.google.clientId,
-  config.google.clientSecret,
-  config.google.redirectUri
-);
+/**
+ * Format a DateTime in the mentor's configured timezone for the Calendar API.
+ */
+function makeDateTime(isoDate, timezone) {
+  return {
+    dateTime: new Date(isoDate).toISOString(),
+    timeZone: timezone || 'Asia/Kolkata',
+  };
+}
 
-oauth2Client.setCredentials({ refresh_token: config.google.refreshToken });
-const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
-async function createMeetingEvent({ booking, mentor, user }) {
+/**
+ * Create a Google Calendar event with a Google Meet link.
+ *
+ * @param {Object} params
+ * @param {Object} params.booking  - Prisma Booking record
+ * @param {Object} params.mentor   - Prisma Mentor record (with googleCalendarConnected, etc.)
+ * @param {Object} params.user     - Prisma User record (the mentee)
+ * @param {string} [params.timezone] - IANA timezone string (overrides mentor.googleCalendarTimezone)
+ *
+ * @returns {{ googleEventId: string|null, meetLink: string|null }}
+ */
+async function createMeetingEvent({ booking, mentor, user, timezone }) {
   try {
+    const tz = timezone || mentor.googleCalendarTimezone || 'Asia/Kolkata';
+    const authClient = await getAuthedClientForMentor(mentor);
+
+    if (!authClient) {
+      console.warn(`[googleMeet] Mentor ${mentor.id} has no Google Calendar connected — skipping event creation.`);
+      return { googleEventId: null, meetLink: null };
+    }
+
+    const calendar = google.calendar({ version: 'v3', auth: authClient });
+
+    const mentorEmail = mentor.user?.email || mentor.institutionEmail;
+    const menteeEmail = user.email;
+
+    const startTime = new Date(booking.scheduledAt);
+    const endTime = new Date(startTime.getTime() + booking.durationMinutes * 60 * 1000);
+
     const event = {
-      summary: `HelpMeMan: ${user.name} with ${mentor.displayName}`,
-      description: `Mentorship session. Booking: ${booking.id}`,
-      start: { dateTime: new Date(booking.scheduledAt).toISOString(), timeZone: 'Asia/Kolkata' },
-      end: {
-        dateTime: new Date(new Date(booking.scheduledAt).getTime() + booking.durationMinutes * 60000).toISOString(),
-        timeZone: 'Asia/Kolkata',
-      },
+      summary: `HelpMeMan: Session with ${mentor.displayName}`,
+      description: [
+        `Mentorship session on HelpMeMan.`,
+        ``,
+        `Mentor: ${mentor.displayName}`,
+        `Mentee: ${user.name}`,
+        `Duration: ${booking.durationMinutes} minutes`,
+        `Booking ID: ${booking.id}`,
+        ``,
+        `Please join 5 minutes early to test your connection.`,
+      ].join('\n'),
+      start: makeDateTime(startTime, tz),
+      end: makeDateTime(endTime, tz),
       attendees: [
-        { email: user.email, displayName: user.name },
-        { email: mentor.user?.email || mentor.institutionEmail, displayName: mentor.displayName },
+        { email: menteeEmail, displayName: user.name },
+        { email: mentorEmail, displayName: mentor.displayName, organizer: true },
       ],
       conferenceData: {
-        createRequest: { requestId: `hmm-${booking.id}`, conferenceSolutionKey: { type: 'hangoutsMeet' } },
+        createRequest: {
+          requestId: `hmm-${booking.id}`,
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        },
       },
-      reminders: { useDefault: false, overrides: [{ method: 'email', minutes: 60 }, { method: 'popup', minutes: 15 }] },
+      reminders: {
+        useDefault: false,
+        overrides: [
+          { method: 'email',  minutes: 60 },  // 1 hour before
+          { method: 'popup',  minutes: 15 },  // 15 min before
+        ],
+      },
+      guestsCanModify: false,
+      guestsCanInviteOthers: false,
     };
-    const response = await calendar.events.insert({ calendarId: 'primary', resource: event, conferenceDataVersion: 1, sendUpdates: 'all' });
+
+    const response = await calendar.events.insert({
+      calendarId: 'primary',
+      resource: event,
+      conferenceDataVersion: 1,  // Required to generate Meet link
+      sendUpdates: 'all',        // Send calendar invites to attendees
+    });
+
+    const meetLink =
+      response.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri ||
+      null;
+
+    console.log(`[googleMeet] Event created: ${response.data.id} | Meet: ${meetLink}`);
+
     return {
       googleEventId: response.data.id,
-      meetLink: response.data.conferenceData?.entryPoints?.find(e => e.entryPointType === 'video')?.uri || null,
+      meetLink,
     };
   } catch (error) {
-    console.error('Google Meet error:', error);
+    console.error('[googleMeet] createMeetingEvent error:', error.message);
+    // Don't throw — booking should still succeed without a Meet link
     return { googleEventId: null, meetLink: null };
   }
 }
 
-async function updateMeetingEvent(googleEventId, newScheduledAt, durationMinutes) {
+/**
+ * Update (reschedule) an existing Google Calendar event.
+ *
+ * @param {Object} mentor          - Mentor record (for auth)
+ * @param {string} googleEventId   - The event ID to update
+ * @param {string} newScheduledAt  - ISO date string for the new start time
+ * @param {number} durationMinutes
+ * @param {string} [timezone]
+ */
+async function updateMeetingEvent(mentor, googleEventId, newScheduledAt, durationMinutes, timezone) {
   try {
-    const event = {
-      start: { dateTime: new Date(newScheduledAt).toISOString(), timeZone: 'Asia/Kolkata' },
-      end: {
-        dateTime: new Date(new Date(newScheduledAt).getTime() + durationMinutes * 60000).toISOString(),
-        timeZone: 'Asia/Kolkata',
+    const tz = timezone || mentor.googleCalendarTimezone || 'Asia/Kolkata';
+    const authClient = await getAuthedClientForMentor(mentor);
+    if (!authClient || !googleEventId) return;
+
+    const calendar = google.calendar({ version: 'v3', auth: authClient });
+
+    const startTime = new Date(newScheduledAt);
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+
+    await calendar.events.patch({
+      calendarId: 'primary',
+      eventId: googleEventId,
+      resource: {
+        start: makeDateTime(startTime, tz),
+        end: makeDateTime(endTime, tz),
       },
-    };
-    await calendar.events.patch({ calendarId: 'primary', eventId: googleEventId, resource: event, sendUpdates: 'all' });
+      sendUpdates: 'all',
+    });
+
+    console.log(`[googleMeet] Event ${googleEventId} rescheduled to ${newScheduledAt}`);
   } catch (error) {
-    console.error('Update event error:', error);
+    console.error('[googleMeet] updateMeetingEvent error:', error.message);
   }
 }
 
-async function cancelMeetingEvent(googleEventId) {
-  try { await calendar.events.delete({ calendarId: 'primary', eventId: googleEventId, sendUpdates: 'all' }); } catch (e) { console.error('Cancel event error:', e); }
+/**
+ * Cancel (delete) a Google Calendar event.
+ *
+ * @param {Object} mentor        - Mentor record (for auth)
+ * @param {string} googleEventId - The event ID to delete
+ */
+async function cancelMeetingEvent(mentor, googleEventId) {
+  try {
+    const authClient = await getAuthedClientForMentor(mentor);
+    if (!authClient || !googleEventId) return;
+
+    const calendar = google.calendar({ version: 'v3', auth: authClient });
+
+    await calendar.events.delete({
+      calendarId: 'primary',
+      eventId: googleEventId,
+      sendUpdates: 'all',
+    });
+
+    console.log(`[googleMeet] Event ${googleEventId} cancelled`);
+  } catch (error) {
+    console.error('[googleMeet] cancelMeetingEvent error:', error.message);
+  }
 }
 
-module.exports = { createMeetingEvent, cancelMeetingEvent, updateMeetingEvent };
+module.exports = { createMeetingEvent, updateMeetingEvent, cancelMeetingEvent };

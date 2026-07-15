@@ -22,5 +22,9 @@ router.get('/me/earnings', mentor.getEarnings);
 router.get('/me/reviews', mentor.getMentorReviews);
 router.get('/me/stats', mentor.getMentorStats);
 router.get('/me/notifications', mentor.getMentorNotifs);
+router.get('/me/google/status', mentor.getGoogleCalendarStatus);
+router.get('/me/blocked-dates', mentor.getBlockedDates);
+router.post('/me/blocked-dates', mentor.addBlockedDate);
+router.delete('/me/blocked-dates/:dateId', mentor.deleteBlockedDate);
 
 module.exports = router;
