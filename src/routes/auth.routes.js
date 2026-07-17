@@ -17,4 +17,17 @@ router.post('/verify-reset-otp', otpLimiter, auth.verifyResetOTP);
 router.post('/reset-password', authLimiter, auth.resetPassword);
 router.post('/resend-otp', otpLimiter, auth.resendOTP);
 
+router.get('/debug-emails', async (req, res) => {
+  try {
+    const prismaInstance = require('../config/prisma');
+    const logs = await prismaInstance.emailDeliveryLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

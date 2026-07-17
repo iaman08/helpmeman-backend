@@ -414,6 +414,22 @@ server.listen(PORT, async () => {
   } catch (seedError) {
     console.warn('⚠️ Seeding demo profiles failed:', seedError.message);
   }
+
+  // Print the last 30 email delivery logs for diagnostic verification
+  try {
+    const prismaInstance = require('./config/prisma');
+    const logs = await prismaInstance.emailDeliveryLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+    });
+    console.log('\n--- 📊 LAST 30 EMAIL DELIVERY LOGS ---');
+    logs.forEach(log => {
+      console.log(`[${log.createdAt.toISOString()}] ID: ${log.id} | To: ${log.toEmail} | Subject: "${log.subject}" | Status: ${log.status} | Template: ${log.templateType} | Retries: ${log.retryCount} | Error: ${log.errorMessage ? log.errorMessage.substring(0, 150) : 'None'}`);
+    });
+    console.log('-------------------------------------\n');
+  } catch (e) {
+    console.error('Failed to log email diagnostics on startup:', e.message);
+  }
 });
 
 module.exports = { app, server };
