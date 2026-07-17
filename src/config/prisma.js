@@ -116,6 +116,68 @@ if (process.env.NODE_ENV === 'production') {
     `);
     console.log('[DB] User table schema verification complete ✓');
 
+    console.log('[DB] Verifying TeamMember table in PostgreSQL...');
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "TeamMember" (
+        "id" TEXT NOT NULL,
+        "fullName" TEXT NOT NULL,
+        "username" TEXT NOT NULL,
+        "role" TEXT NOT NULL,
+        "department" TEXT NOT NULL,
+        "bio" TEXT NOT NULL,
+        "story" TEXT,
+        "education" TEXT,
+        "experience" TEXT,
+        "achievements" TEXT,
+        "projects" TEXT,
+        "skills" TEXT[],
+        "interests" TEXT[],
+        "languages" TEXT[],
+        "location" TEXT,
+        "country" TEXT,
+        "email" TEXT,
+        "phone" TEXT,
+        "linkedin" TEXT,
+        "github" TEXT,
+        "twitter" TEXT,
+        "website" TEXT,
+        "instagram" TEXT,
+        "facebook" TEXT,
+        "imageUrl" TEXT,
+        "coverUrl" TEXT,
+        "status" TEXT NOT NULL DEFAULT 'ONLINE',
+        "isFounder" BOOLEAN NOT NULL DEFAULT false,
+        "isLeadership" BOOLEAN NOT NULL DEFAULT false,
+        "isVerified" BOOLEAN NOT NULL DEFAULT false,
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "isFeatured" BOOLEAN NOT NULL DEFAULT false,
+        "availableForMentorship" BOOLEAN NOT NULL DEFAULT false,
+        "allowContact" BOOLEAN NOT NULL DEFAULT true,
+        "showEmail" BOOLEAN NOT NULL DEFAULT false,
+        "showSocialLinks" BOOLEAN NOT NULL DEFAULT true,
+        "displayOrder" INTEGER NOT NULL DEFAULT 0,
+        "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "leftAt" TIMESTAMP(3),
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        CONSTRAINT "TeamMember_pkey" PRIMARY KEY ("id")
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "TeamMember_username_key" ON "TeamMember"("username");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "TeamMember_username_idx" ON "TeamMember"("username");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "TeamMember_department_idx" ON "TeamMember"("department");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "TeamMember_displayOrder_idx" ON "TeamMember"("displayOrder");
+    `);
+    console.log('[DB] TeamMember table schema verification complete ✓');
+
     // Run column diagnostic check
     try {
       console.log('[DB] Running inline column diagnostics...');
