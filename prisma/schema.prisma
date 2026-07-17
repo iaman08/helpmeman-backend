@@ -504,3 +504,52 @@ model MentorMemory {
 
   @@index([mentorId, createdAt])
 }
+
+model TeamMember {
+  id                     String    @id @default(cuid())
+  fullName               String
+  username               String    @unique
+  role                   String
+  department             String
+  bio                    String    @db.Text
+  story                  String?   @db.Text
+  education              String?   @db.Text
+  experience             String?   @db.Text
+  achievements           String?   @db.Text
+  projects               String?   @db.Text
+  skills                 String[]
+  interests              String[]
+  languages              String[]
+  location               String?
+  country                String?
+  email                  String?
+  phone                  String?
+  linkedin               String?
+  github                 String?
+  twitter                String?
+  website                String?
+  instagram              String?
+  facebook               String?
+  imageUrl               String?
+  coverUrl               String?
+  status                 String    @default("ONLINE")
+  isFounder              Boolean   @default(false)
+  isLeadership           Boolean   @default(false)
+  isVerified             Boolean   @default(false)
+  isActive               Boolean   @default(true)
+  isFeatured             Boolean   @default(false)
+  availableForMentorship Boolean   @default(false)
+  allowContact           Boolean   @default(true)
+  showEmail              Boolean   @default(false)
+  showSocialLinks        Boolean   @default(true)
+  displayOrder           Int       @default(0)
+  joinedAt               DateTime  @default(now())
+  leftAt                 DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([username])
+  @@index([department])
+  @@index([displayOrder])
+}
+

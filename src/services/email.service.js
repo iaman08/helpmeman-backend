@@ -154,7 +154,7 @@ async function logEmailDelivery({
   }
 }
 
-async function sendEmail({ to, subject, html, text, userId, templateType = 'generic', notificationId , }) {
+async function sendEmail({ to, subject, html, text, userId, templateType = 'generic', notificationId, logDelivery = true }) {
   // Validate email address before sending
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!to || !emailRegex.test(to)) {
@@ -164,6 +164,7 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
 
   console.log(`[EMAIL] 📤 Attempting to send "${subject}" to ${to}`);
   const plainText = text || html.replace(/<[^>]*>/g, '');
+  const errors = [];
 
   // Try Resend first
   if (config.resend.apiKey) {
@@ -171,26 +172,27 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
     try {
       const res = await sendResendEmailWithRetry({ to, subject, html, from: config.smtp.fromEmail });
       console.log(`[EMAIL] ✅ Resend delivered successfully! ID: ${res.id}`);
-      await logEmailDelivery({
-        userId,
-        toEmail: to,
-        subject,
-        templateType,
-        status: 'sent',
-        providerId: res.id,
-        notificationId,
-      });
+      if (logDelivery) {
+        await logEmailDelivery({
+          userId,
+          toEmail: to,
+          subject,
+          templateType,
+          status: 'sent',
+          providerId: res.id,
+          notificationId,
+        });
+      }
       return { success: true, provider: 'resend', id: res.id };
     } catch (error) {
       console.error(`[EMAIL] ⚠️ Resend failed: ${error.message}`);
-      console.log(`[EMAIL] ↩️ Falling back to Brevo SMTP...`);
+      errors.push(`Resend failed: ${error.message}`);
     }
-  } else {
-    console.log(`[EMAIL] ⚠️ No Resend API key configured, using SMTP directly.`);
   }
 
   // --- Gmail SMTP fallback ---
   if (gmailTransporter) {
+    console.log(`[EMAIL] 🔑 Trying Gmail SMTP...`);
     try {
       const gmailFrom = config.gmail?.user || 'noreply@gmail.com';
       const info = await gmailTransporter.sendMail({
@@ -201,15 +203,19 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
         text: plainText,
       });
       console.log(`[EMAIL] ✅ Gmail delivered! Message ID: ${info.messageId}`);
-      await logEmailDelivery({ userId, toEmail: to, subject, templateType, status: 'sent', providerId: info.messageId, notificationId });
+      if (logDelivery) {
+        await logEmailDelivery({ userId, toEmail: to, subject, templateType, status: 'sent', providerId: info.messageId, notificationId });
+      }
       return { success: true, provider: 'gmail', id: info.messageId };
     } catch (error) {
       console.error(`[EMAIL] ❌ Gmail failed: ${error.message}`);
+      errors.push(`Gmail failed: ${error.message}`);
     }
   }
 
   // --- Brevo SMTP fallback ---
   if (smtpTransporter) {
+    console.log(`[EMAIL] 🔑 Trying Brevo SMTP...`);
     try {
       const info = await smtpTransporter.sendMail({
         from: `"HelpMeMan" <${config.smtp.fromEmail}>`,
@@ -219,20 +225,32 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
         text: plainText,
       });
       console.log(`[EMAIL] ✅ Brevo SMTP delivered! Message ID: ${info.messageId}`);
-      await logEmailDelivery({ userId, toEmail: to, subject, templateType, status: 'sent', providerId: info.messageId, notificationId });
+      if (logDelivery) {
+        await logEmailDelivery({ userId, toEmail: to, subject, templateType, status: 'sent', providerId: info.messageId, notificationId });
+      }
       return { success: true, provider: 'brevo-smtp', id: info.messageId };
     } catch (error) {
       console.error(`[EMAIL] ❌ Brevo SMTP failed: ${error.message}`);
-      await logEmailDelivery({ userId, toEmail: to, subject, templateType, status: 'failed', errorMessage: error.message, notificationId });
+      errors.push(`Brevo SMTP failed: ${error.message}`);
     }
   }
 
-  if (!gmailTransporter && !smtpTransporter) {
-    console.warn(`[EMAIL] ❌ No SMTP transporter configured! Set GMAIL_USER + GMAIL_APP_PASSWORD in .env`);
+  const errorMessage = errors.length > 0 ? errors.join(' | ') : 'No SMTP transporters configured';
+  console.error(`[EMAIL] ❌ All delivery methods exhausted for ${to}: ${errorMessage}`);
+  
+  if (logDelivery) {
+    await logEmailDelivery({
+      userId,
+      toEmail: to,
+      subject,
+      templateType,
+      status: 'failed',
+      errorMessage: `${errorMessage} | storedHtml:${html}`,
+      notificationId,
+    });
   }
 
-  console.error(`[EMAIL] ❌ All delivery methods exhausted for ${to}`);
-  return { success: false, provider: null };
+  return { success: false, provider: null, error: errorMessage };
 }
 
 
@@ -256,6 +274,7 @@ async function retryFailedEmails(limit = 25) {
       userId: entry.userId,
       templateType: entry.templateType,
       notificationId: entry.notificationId,
+      logDelivery: false, // Prevent creating new log entries during retry
     });
 
     if (result.success) {
@@ -267,7 +286,7 @@ async function retryFailedEmails(limit = 25) {
     } else {
       await prisma.emailDeliveryLog.update({
         where: { id: entry.id },
-        data: { retryCount: entry.retryCount + 1 },
+        data: { retryCount: entry.retryCount + 1, errorMessage: result.error || 'Retry failed' },
       });
     }
   }
