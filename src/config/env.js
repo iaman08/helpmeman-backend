@@ -52,7 +52,7 @@ module.exports = {
     token: process.env.UPSTASH_REDIS_REST_TOKEN,
   },
   resend: {
-    apiKey: process.env.RESEND_API_KEY || 're_25WmofXS_3BxMzmNCX6YZNYJZSMcvPH5x',
+    apiKey: process.env.RESEND_API_KEY,
   },
   gmail: {
     user: process.env.GMAIL_USER,

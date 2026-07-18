@@ -50,7 +50,7 @@ async function approveMentorHandler(req, res) {
     res.json({ mentor });
   } catch (e) {
     console.error('[ADMIN] Mentor approval handler crashed:', e);
-    res.status(500).json({ error: e.message || 'Approval failed' });
+    res.status(500).json({ error: 'Mentor approval failed' });
   }
 }
 
@@ -62,7 +62,7 @@ async function rejectMentorHandler(req, res) {
     res.json({ mentor });
   } catch (e) {
     console.error('[ADMIN] Mentor rejection handler crashed:', e);
-    res.status(500).json({ error: e.message || 'Rejection failed' });
+    res.status(500).json({ error: 'Mentor rejection failed' });
   }
 }
 

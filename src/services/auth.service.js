@@ -69,8 +69,8 @@ async function verifySession(token) {
   }
 
   // ── 1. Local dev bypass for seeded demo accounts ──────────────────────────
-  if (token.startsWith('demo_')) {
-    console.log('[AUTH] [verifySession] Bypass triggered for demo token:', token);
+  if (process.env.NODE_ENV === 'development' && token.startsWith('demo_')) {
+    console.warn('[AUTH] [verifySession] ⚠️ Demo bypass active (dev only):', token);
     const prisma = require('../config/prisma');
     const email = token === 'demo_admin_token'   ? 'admin@helpmeman.com'   :
                   token === 'demo_mentor_token'  ? 'mentor@helpmeman.com'  :

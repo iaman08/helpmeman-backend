@@ -7,6 +7,7 @@
  */
 
 const { google } = require('googleapis');
+const crypto = require('crypto');
 const config = require('../config/env');
 const prisma = require('../config/prisma');
 const { encrypt, decrypt } = require('./tokenEncryption.service');
@@ -23,6 +24,35 @@ function buildOAuth2Client() {
 }
 
 /**
+ * Create a signed state parameter for OAuth CSRF protection.
+ * Format: mentorId.signature
+ */
+function signState(mentorId) {
+  const secret = config.jwtSecret || config.google.clientSecret;
+  const signature = crypto.createHmac('sha256', secret).update(mentorId).digest('hex').slice(0, 16);
+  return `${mentorId}.${signature}`;
+}
+
+/**
+ * Verify and extract mentorId from a signed state parameter.
+ * Returns mentorId if valid, null otherwise.
+ */
+function verifyState(state) {
+  if (!state || !state.includes('.')) return null;
+  const lastDot = state.lastIndexOf('.');
+  const mentorId = state.slice(0, lastDot);
+  const providedSig = state.slice(lastDot + 1);
+  const secret = config.jwtSecret || config.google.clientSecret;
+  const expectedSig = crypto.createHmac('sha256', secret).update(mentorId).digest('hex').slice(0, 16);
+  try {
+    const valid = crypto.timingSafeEqual(Buffer.from(providedSig), Buffer.from(expectedSig));
+    return valid ? mentorId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Generate the Google OAuth consent URL for a mentor.
  * @param {string} mentorId  - The mentor's DB id (embedded in state param for security)
  * @returns {string} The authorization URL to redirect the mentor to.
@@ -36,7 +66,7 @@ function generateAuthUrl(mentorId) {
       'https://www.googleapis.com/auth/calendar.events',
       'https://www.googleapis.com/auth/calendar.readonly',
     ],
-    state: mentorId,           // Pass mentorId through so callback knows who to save tokens for
+    state: signState(mentorId), // CSRF-protected signed state
   });
 }
 
@@ -161,4 +191,5 @@ module.exports = {
   getMentorDecryptedTokens,
   getAuthedClientForMentor,
   revokeMentorTokens,
+  verifyState,
 };

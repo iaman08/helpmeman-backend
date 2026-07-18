@@ -11,6 +11,15 @@ const config = require('../config/env');
 const crypto = require('crypto');
 const https = require('https');
 
+// Password complexity: min 8 chars, at least 1 uppercase, 1 lowercase, 1 digit
+function isPasswordStrong(password) {
+  if (!password || password.length < 8) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  return true;
+}
+
 // POST /api/auth/register
 async function register(req, res) {
   try {
@@ -19,8 +28,8 @@ async function register(req, res) {
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    if (!isPasswordStrong(password)) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters with uppercase, lowercase, and a number' });
     }
 
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
@@ -66,7 +75,7 @@ async function verifySignupOTP(req, res) {
     });
 
     if (createError || !data.user) {
-      return res.status(400).json({ error: createError?.message || 'Failed to create user auth account' });
+      return res.status(400).json({ error: 'Failed to create user account. Please try again.' });
     }
 
     // Now log in to retrieve a session/tokens
@@ -76,7 +85,7 @@ async function verifySignupOTP(req, res) {
     });
 
     if (loginError || !sessionData.session) {
-      return res.status(400).json({ error: loginError?.message || 'Failed to authenticate user' });
+      return res.status(400).json({ error: 'Account creation failed. Please try again.' });
     }
 
     let user = await prisma.user.findUnique({ where: { id: data.user.id } });
@@ -247,7 +256,7 @@ async function verifyEmail(req, res) {
       token,
       type: 'signup',
     });
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) return res.status(400).json({ error: 'Invalid or expired verification token' });
     res.json({ message: 'Email verified successfully' });
   } catch (error) {
     res.status(400).json({ error: 'Invalid or expired token' });
@@ -309,7 +318,7 @@ async function login(req, res) {
 
     if (error || !data.user || !data.session) {
       console.warn(`[AUTH] Login failed for email: ${email}. Error: ${error?.message}`);
-      return res.status(401).json({ error: error?.message || 'Invalid credentials' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const mentorInclude = {
@@ -370,7 +379,7 @@ async function refresh(req, res) {
       return res.status(400).json({ error: 'Refresh token is required' });
     }
 
-    if (refreshToken === 'demo_refresh_token') {
+    if (process.env.NODE_ENV === 'development' && refreshToken === 'demo_refresh_token') {
       let roleToken = 'demo_student_token';
       const authHeader = req.headers.authorization;
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -386,7 +395,7 @@ async function refresh(req, res) {
 
     const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
     if (error || !data.session) {
-      return res.status(401).json({ error: error?.message || 'Invalid refresh token' });
+      return res.status(401).json({ error: 'Invalid or expired refresh token' });
     }
 
     res.json({
@@ -448,7 +457,7 @@ async function verifyResetOTP(req, res) {
     });
 
     if (error || !data.user || !data.session) {
-      return res.status(400).json({ error: error?.message || 'Verification failed' });
+      return res.status(400).json({ error: 'Verification failed. Please try again.' });
     }
 
     res.json({ resetToken: data.session.access_token, message: 'OTP verified successfully' });
@@ -465,8 +474,8 @@ async function resetPassword(req, res) {
     if (!token || !password) {
       return res.status(400).json({ error: 'Token and password are required' });
     }
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    if (!isPasswordStrong(password)) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters with uppercase, lowercase, and a number' });
     }
 
     const { createClient } = require('@supabase/supabase-js');
@@ -479,7 +488,7 @@ async function resetPassword(req, res) {
 
     const { data: { user }, error: userError } = await tempSupabase.auth.getUser(token);
     if (userError || !user) {
-      return res.status(400).json({ error: userError?.message || 'Invalid or expired token' });
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
     }
 
     const { error } = await tempSupabase.auth.admin.updateUserById(user.id, {
@@ -487,7 +496,7 @@ async function resetPassword(req, res) {
     });
 
     if (error) {
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ error: 'Password reset failed. Please try again.' });
     }
 
     res.json({ message: 'Password reset successful' });
@@ -513,7 +522,7 @@ async function resendOTP(req, res) {
       await sendOtpEmail({ email: email.toLowerCase(), otp, purpose: 'signup' });
     } else if (purpose === 'reset') {
       const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase());
-      if (error) return res.status(400).json({ error: error.message });
+      if (error) return res.status(400).json({ error: 'Failed to resend OTP. Please try again.' });
     }
 
     res.json({ message: 'OTP resent', cooldown: 60 });
@@ -583,7 +592,7 @@ async function googleLogin(req, res) {
     }
 
     res.status(401).json({ 
-      error: error.message || 'Google authentication failed', 
+      error: 'Google authentication failed. Please try again.', 
       code: errorCode 
     });
   }

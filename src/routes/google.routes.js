@@ -19,6 +19,7 @@ const {
   exchangeCodeForTokens,
   saveMentorTokens,
   revokeMentorTokens,
+  verifyState,
 } = require('../services/googleOAuth.service');
 
 // ── GET /api/google/oauth/url ─────────────────────────────────────────────────
@@ -61,14 +62,17 @@ router.get('/oauth/status', authenticate, roleGuard('MENTOR'), async (req, res) 
 // State param = mentorId (set by generateAuthUrl).
 // Saves tokens, then redirects to the mentor dashboard settings page.
 router.get('/oauth/callback', async (req, res) => {
-  const { code, state: mentorId, error } = req.query;
+  const { code, state, error: oauthError } = req.query;
 
-  if (error) {
-    console.warn(`[google.routes] OAuth denied: ${error}`);
+  if (oauthError) {
+    console.warn(`[google.routes] OAuth denied: ${oauthError}`);
     return res.redirect(`${config.frontendUrl}/mentor/settings?google=denied`);
   }
 
+  // Verify CSRF-signed state parameter
+  const mentorId = verifyState(state);
   if (!code || !mentorId) {
+    console.warn('[google.routes] Invalid or tampered state parameter');
     return res.redirect(`${config.frontendUrl}/mentor/settings?google=error`);
   }
 

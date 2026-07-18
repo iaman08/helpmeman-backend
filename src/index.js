@@ -57,15 +57,16 @@ const corsOriginCheck = (origin, callback) => {
   // No origin = server-to-server / curl / mobile — allow
   if (!origin) return callback(null, true);
 
-  const isLocalDev =
+  const isLocalDev = config.nodeEnv === 'development' && (
     origin.startsWith('http://localhost:') ||
     origin.startsWith('http://127.0.0.1:') ||
     origin.startsWith('http://192.168.') ||
-    origin.startsWith('http://10.');
+    origin.startsWith('http://10.')
+  );
 
   const isVercelOrigin =
-    origin.endsWith('.vercel.app') ||
-    origin === 'https://helpmeman-frontend.vercel.app';
+    origin === 'https://helpmeman-frontend.vercel.app' ||
+    /^https:\/\/helpmeman-frontend-[a-z0-9-]+\.vercel\.app$/.test(origin);
 
   const isCustomDomain =
     origin === 'https://helpmeman.com' ||
@@ -96,7 +97,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https:"],
       styleSrc: ["'self'", "'unsafe-inline'", "https:"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       connectSrc: ["'self'", "https:", "wss:", "ws:"],
@@ -169,48 +170,10 @@ app.use('/api/team', teamRoutes);
 app.get('/api/health', async (req, res) => {
   try {
     const prisma = require('./config/prisma');
-    const all = await prisma.messageReaction.findMany({
-      orderBy: { createdAt: 'desc' }
-    });
-    
-    const seen = new Set();
-    const duplicates = [];
-    
-    for (const r of all) {
-      const key = `${r.messageId}_${r.userId}`;
-      if (seen.has(key)) {
-        duplicates.push(r.id);
-      } else {
-        seen.add(key);
-      }
-    }
-    
-    if (duplicates.length > 0) {
-      console.log(`[DB Migration] Deleting ${duplicates.length} duplicate reaction rows...`);
-      await prisma.messageReaction.deleteMany({
-        where: { id: { in: duplicates } }
-      });
-    }
-    
-    // Re-establish strict unique index
-    await prisma.$executeRawUnsafe(`
-      DROP INDEX IF EXISTS "MessageReaction_messageId_userId_emoji_key";
-    `);
-    await prisma.$executeRawUnsafe(`
-      DROP INDEX IF EXISTS "MessageReaction_messageId_userId_key";
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE UNIQUE INDEX IF NOT EXISTS "MessageReaction_messageId_userId_key" 
-      ON "MessageReaction"("messageId", "userId");
-    `);
-
-    res.json({ 
-      status: 'ok', 
-      cleanedReactions: duplicates.length,
-      timestamp: new Date().toISOString() 
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: 'degraded' });
   }
 });
 
@@ -415,20 +378,22 @@ server.listen(PORT, async () => {
     console.warn('⚠️ Seeding demo profiles failed:', seedError.message);
   }
 
-  // Print the last 30 email delivery logs for diagnostic verification
-  try {
-    const prismaInstance = require('./config/prisma');
-    const logs = await prismaInstance.emailDeliveryLog.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 30,
-    });
-    console.log('\n--- 📊 LAST 30 EMAIL DELIVERY LOGS ---');
-    logs.forEach(log => {
-      console.log(`[${log.createdAt.toISOString()}] ID: ${log.id} | To: ${log.toEmail} | Subject: "${log.subject}" | Status: ${log.status} | Template: ${log.templateType} | Retries: ${log.retryCount} | Error: ${log.errorMessage ? log.errorMessage.substring(0, 150) : 'None'}`);
-    });
-    console.log('-------------------------------------\n');
-  } catch (e) {
-    console.error('Failed to log email diagnostics on startup:', e.message);
+  // Print email delivery logs only in development for diagnostics
+  if (config.nodeEnv === 'development') {
+    try {
+      const prismaInstance = require('./config/prisma');
+      const logs = await prismaInstance.emailDeliveryLog.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      });
+      console.log(`\n--- 📊 LAST ${logs.length} EMAIL DELIVERY LOGS ---`);
+      logs.forEach(log => {
+        console.log(`[${log.createdAt.toISOString()}] ID: ${log.id} | Status: ${log.status} | Template: ${log.templateType}`);
+      });
+      console.log('-------------------------------------\n');
+    } catch (e) {
+      console.error('Failed to log email diagnostics on startup:', e.message);
+    }
   }
 });
 

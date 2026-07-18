@@ -23,7 +23,14 @@ function verifyPaymentSignature({ orderId, paymentId, signature }) {
     .update(`${orderId}|${paymentId}`)
     .digest('hex');
 
-  return generatedSignature === signature;
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(generatedSignature, 'hex'),
+      Buffer.from(signature, 'hex')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function verifyWebhookSignature(body, signature) {
@@ -32,7 +39,14 @@ function verifyWebhookSignature(body, signature) {
     .update(JSON.stringify(body))
     .digest('hex');
 
-  return generatedSignature === signature;
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(generatedSignature, 'hex'),
+      Buffer.from(signature, 'hex')
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function initiateRefund(paymentId, amount) {
