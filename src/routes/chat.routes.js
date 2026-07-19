@@ -6,7 +6,7 @@ const chat = require('../controllers/chat.controller');
 const { upload, uploadAttachment } = require('../controllers/chatUpload.controller');
 
 router.use(authenticate);
-router.use(roleGuard('USER', 'MENTOR'));
+router.use(roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR', 'STUDENT'));
 
 // Thread management
 router.get('/unread-count', chat.getUnreadCount);

@@ -5,7 +5,7 @@ const { roleGuard } = require('../middleware/roleGuard');
 const admin = require('../controllers/admin.controller');
 
 router.use(authenticate);
-router.use(roleGuard('ADMIN'));
+router.use(roleGuard('SUPER_ADMIN', 'ADMIN'));
 
 router.get('/dashboard', admin.getDashboard);
 router.get('/mentors/pending', admin.getPendingMentors);

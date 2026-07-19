@@ -42,6 +42,8 @@ module.exports = {
   admin: {
     email: process.env.ADMIN_EMAIL,
     notificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
+    superAdminEmails: process.env.SUPER_ADMIN_EMAILS || '',
+    adminEmails: process.env.ADMIN_EMAILS || '',
   },
   platformFeePercent: parseInt(process.env.PLATFORM_FEE_PERCENT, 10) || 20,
   groq: {

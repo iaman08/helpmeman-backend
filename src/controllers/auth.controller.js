@@ -70,7 +70,7 @@ async function verifySignupOTP(req, res) {
       email_confirm: true,
       user_metadata: {
         name,
-        role: 'USER',
+        role: 'STUDENT',
       },
     });
 
@@ -97,11 +97,15 @@ async function verifySignupOTP(req, res) {
           email: email.toLowerCase(),
           passwordHash: '',
           phone: phone || null,
-          role: 'USER',
+          role: 'STUDENT',
           isEmailVerified: true,
         },
       });
     }
+
+    // Call role synchronization (upgrade-only safety rule)
+    const { syncUserRole } = require('../services/roleSync.service');
+    user = await syncUserRole(user);
 
     try {
       const { getOrCreatePreferences } = require('../services/notification.service');
@@ -209,9 +213,13 @@ async function verifyMentorOTP(req, res) {
       return res.status(400).json({ error: loginError?.message || 'Failed to authenticate mentor' });
     }
 
-    const user = await prisma.user.create({
+    let user = await prisma.user.create({
       data: { id: supabaseUser.id, name, email: email.toLowerCase(), passwordHash: '', phone, role: 'MENTOR', isEmailVerified: true },
     });
+
+    // Call role synchronization (upgrade-only safety rule)
+    const { syncUserRole } = require('../services/roleSync.service');
+    user = await syncUserRole(user);
 
     const mentor = await prisma.mentor.create({
       data: {
@@ -270,11 +278,12 @@ async function login(req, res) {
   try {
     // Local development bypass for seeded demo accounts
     if (process.env.NODE_ENV === 'development' && 
-        ['admin@helpmeman.com', 'student@helpmeman.com', 'mentor@helpmeman.com'].includes(email.toLowerCase()) &&
+        ['admin@helpmeman.com', 'student@helpmeman.com', 'mentor@helpmeman.com', 'official.diljha@gmail.com'].includes(email.toLowerCase()) &&
         (password === 'password123' || password === 'mock123')) {
         
-      const role = email.toLowerCase() === 'admin@helpmeman.com' ? 'ADMIN' :
-                   email.toLowerCase() === 'mentor@helpmeman.com' ? 'MENTOR' : 'USER';
+      const role = email.toLowerCase() === 'official.diljha@gmail.com' ? 'SUPER_ADMIN' :
+                   email.toLowerCase() === 'admin@helpmeman.com' ? 'ADMIN' :
+                   email.toLowerCase() === 'mentor@helpmeman.com' ? 'MENTOR' : 'STUDENT';
                    
       const localUser = await prisma.user.findFirst({
         where: { email: email.toLowerCase() }
@@ -289,7 +298,7 @@ async function login(req, res) {
           });
         }
         
-        const tokenRole = role === 'USER' ? 'student' : role.toLowerCase();
+        const tokenRole = role === 'STUDENT' ? 'student' : role.toLowerCase();
         
         console.log(`[AUTH] Demo login completed successfully for user: ${email}`);
         return res.json({
@@ -339,12 +348,16 @@ async function login(req, res) {
           name: data.user.user_metadata?.name || email.split('@')[0],
           email: email.toLowerCase(),
           passwordHash: '',
-          role: data.user.user_metadata?.role || 'USER',
+          role: data.user.user_metadata?.role || 'STUDENT',
           isEmailVerified: true,
         },
         include: mentorInclude
       });
     }
+
+    // Call role synchronization (upgrade-only safety rule)
+    const { syncUserRole } = require('../services/roleSync.service');
+    user = await syncUserRole(user);
 
     const mentorData = user.mentor || null;
 
@@ -549,11 +562,14 @@ async function googleLogin(req, res) {
 
     const authService = require('../services/auth.service');
     console.log('[AUTH] STEP 3: Verifying token with Supabase...');
-    const user = await authService.verifySession(accessToken);
+    let user = await authService.verifySession(accessToken);
     console.log('[AUTH] STEP 4: Google/Supabase user successfully verified and extracted:', user.email);
 
+    // Call role synchronization (upgrade-only safety rule)
+    const { syncUserRole } = require('../services/roleSync.service');
+    user = await syncUserRole(user);
+
     console.log('[AUTH] STEP 5: Searching/syncing database for user:', user.email);
-    // User syncing is done inside verifySession -> findOrCreateUser, so user is already synced at this point
     const mentorData = user.mentor || null;
     console.log('[AUTH] STEP 6: User created/found in DB. ID:', user.id);
 

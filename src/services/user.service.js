@@ -55,7 +55,7 @@ async function findOrCreateUser(supabaseUser) {
           name: name,
           passwordHash: '', // Password hashing and validation is handled by Supabase Auth GoTrue
           avatar: avatar,
-          role: 'USER',
+          role: 'STUDENT',
           isEmailVerified: isEmailVerified,
         },
         include: mentorInclude

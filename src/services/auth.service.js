@@ -72,9 +72,10 @@ async function verifySession(token) {
   if (process.env.NODE_ENV === 'development' && token.startsWith('demo_')) {
     console.warn('[AUTH] [verifySession] ⚠️ Demo bypass active (dev only):', token);
     const prisma = require('../config/prisma');
-    const email = token === 'demo_admin_token'   ? 'admin@helpmeman.com'   :
-                  token === 'demo_mentor_token'  ? 'mentor@helpmeman.com'  :
-                  token === 'demo_student_token' ? 'student@helpmeman.com' :
+    const email = token === 'demo_super_admin_token' ? 'official.diljha@gmail.com' :
+                  token === 'demo_admin_token'       ? 'admin@helpmeman.com'        :
+                  token === 'demo_mentor_token'      ? 'mentor@helpmeman.com'       :
+                  token === 'demo_student_token'     ? 'student@helpmeman.com'      :
                   'student@helpmeman.com';
     const localUser = await prisma.user.findFirst({ where: { email } });
     if (localUser) return localUser;

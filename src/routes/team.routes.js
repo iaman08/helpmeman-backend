@@ -19,7 +19,7 @@ router.get('/:username', team.getTeamMemberByUsername);
 router.post(
   '/',
   authenticate,
-  roleGuard('ADMIN'),
+  roleGuard('SUPER_ADMIN', 'ADMIN'),
   upload.fields([
     { name: 'image', maxCount: 1 },
     { name: 'cover', maxCount: 1 }
@@ -30,7 +30,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  roleGuard('ADMIN'),
+  roleGuard('SUPER_ADMIN', 'ADMIN'),
   upload.fields([
     { name: 'image', maxCount: 1 },
     { name: 'cover', maxCount: 1 }
@@ -38,10 +38,10 @@ router.put(
   team.updateTeamMember
 );
 
-router.delete('/:id', authenticate, roleGuard('ADMIN'), team.deleteTeamMember);
-router.patch('/order', authenticate, roleGuard('ADMIN'), team.updateTeamOrder);
-router.patch('/status', authenticate, roleGuard('ADMIN'), team.updateTeamStatus);
-router.patch('/archive', authenticate, roleGuard('ADMIN'), team.archiveTeamMember);
-router.patch('/verify', authenticate, roleGuard('ADMIN'), team.verifyTeamMember);
+router.delete('/:id', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN'), team.deleteTeamMember);
+router.patch('/order', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN'), team.updateTeamOrder);
+router.patch('/status', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN'), team.updateTeamStatus);
+router.patch('/archive', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN'), team.archiveTeamMember);
+router.patch('/verify', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN'), team.verifyTeamMember);
 
 module.exports = router;

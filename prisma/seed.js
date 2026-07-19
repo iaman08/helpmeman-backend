@@ -408,15 +408,25 @@ async function main() {
       name: 'Riya Gupta',
       email: 'student@helpmeman.com',
       passwordHash: studentPw,
-      role: 'USER',
+      role: 'STUDENT',
       onboardingRole: 'MENTEE',
       isEmailVerified: true,
     },
   });
   console.log(`  ✅ Student: student@helpmeman.com`);
 
+  // ─── Super Admin User ───
+  const superAdminHash = await hashPw('password123');
+  const superAdmin = await prisma.user.upsert({
+    where: { email: 'official.diljha@gmail.com' },
+    update: { passwordHash: superAdminHash },
+    create: { name: 'Super Admin', email: 'official.diljha@gmail.com', passwordHash: superAdminHash, role: 'SUPER_ADMIN', isEmailVerified: true },
+  });
+  console.log(`✅ Super Admin: ${superAdmin.email}`);
+
   console.log('\n🎉 Seeding complete!\n');
   console.log('Test accounts:');
+  console.log('  SuperAdmin: official.diljha@gmail.com / password123');
   console.log('  Admin:   admin@helpmeman.com / password123');
   console.log('  Student: student@helpmeman.com / password123');
   console.log('  Mentors: mentor@helpmeman.com / password123');

@@ -8,7 +8,7 @@ const user = require('../controllers/user.controller');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.use(authenticate);
-router.use(roleGuard('USER', 'MENTOR', 'ADMIN'));
+router.use(roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR', 'STUDENT'));
 
 router.get('/me', user.getProfile);
 router.put('/me', upload.single('avatar'), user.updateProfile);

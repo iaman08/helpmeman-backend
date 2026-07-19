@@ -15,7 +15,7 @@ model User {
   passwordHash    String
   phone           String?
   avatar          String?
-  role            Role           @default(USER)
+  role            Role           @default(STUDENT)
   isEmailVerified Boolean        @default(false)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -288,9 +288,10 @@ enum SenderRole {
 }
 
 enum Role {
-  USER
-  MENTOR
+  SUPER_ADMIN
   ADMIN
+  MENTOR
+  STUDENT
 }
 
 enum InstitutionType {
@@ -553,3 +554,20 @@ model TeamMember {
   @@index([displayOrder])
 }
 
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String   // ROLE_CHANGE, MENTOR_APPROVED, MENTOR_REJECTED, etc.
+  actorId   String   // User ID of who performed the action
+  targetId  String?  // User ID of who was affected
+  oldValue  String?  // Previous state (e.g., old role)
+  newValue  String?  // New state (e.g., new role)
+  endpoint  String?  // API endpoint path
+  ip        String?  // Request IP address
+  requestId String?  // Correlation ID
+  metadata  Json?    // Additional context
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetId, createdAt])
+  @@index([action, createdAt])
+}
