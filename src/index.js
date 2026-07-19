@@ -52,6 +52,7 @@ const superAdminRoutes = require('./routes/superAdmin.routes');
 const adminManagementRoutes = require('./routes/adminManagement.routes');
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 const allowedOrigins = [config.frontendUrl].filter(Boolean);

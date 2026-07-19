@@ -19,7 +19,7 @@ const generalLimiter = makeLimiter({
 
 const authLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 50,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth attempts, please try again later.' },
