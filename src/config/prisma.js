@@ -194,18 +194,7 @@ if (process.env.NODE_ENV === 'production') {
       console.error('[DB] Inline diagnostics failed:', e.message);
     }
 
-    console.log('[DB] Checking Prisma Client generation status...');
-    const fs = require('fs');
-    const flagPath = path.join(__dirname, '..', '..', 'prisma_generated.flag');
-    if (!fs.existsSync(flagPath)) {
-      console.log('[DB] Regenerating Prisma Client for new MessageReaction constraint...');
-      execSync('npx prisma generate', { cwd: path.join(__dirname, '..', '..') });
-      fs.writeFileSync(flagPath, 'done', 'utf8');
-      console.log('[DB] Prisma Client regenerated successfully! Restarting server to reload types...');
-      process.exit(0);
-    } else {
-      console.log('[DB] Prisma Client is up-to-date. ✓');
-    }
+    console.log('[DB] Verification finished.');
   } catch (err) {
     console.error('[DB] MessageReaction dynamic migration failed:', err.message);
   }
