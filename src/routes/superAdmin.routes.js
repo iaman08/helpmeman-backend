@@ -33,4 +33,7 @@ router.post('/users/:id/role', roleChangeLimiter, superAdmin.changeUserRole);
 router.get('/audit-logs', superAdmin.viewAuditLogs);
 router.get('/role-counts', superAdmin.getRoleCounts);
 
+router.get('/dashboard-stats', superAdmin.getDashboardStats);
+router.get('/system-health', superAdmin.getSystemHealth);
+
 module.exports = router;

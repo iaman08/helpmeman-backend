@@ -24,10 +24,6 @@
     "data_type": "boolean"
   },
   {
-    "column_name": "createdAt",
-    "data_type": "timestamp without time zone"
-  },
-  {
     "column_name": "status",
     "data_type": "USER-DEFINED"
   },
@@ -46,5 +42,9 @@
   {
     "column_name": "attachments",
     "data_type": "jsonb"
+  },
+  {
+    "column_name": "createdAt",
+    "data_type": "timestamp without time zone"
   }
 ]

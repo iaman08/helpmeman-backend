@@ -1,5 +1,6 @@
 const { approveMentor, rejectMentor } = require('../services/mentorApproval.service');
 const prisma = require('../config/prisma');
+const { logAuditEvent, getClientIp } = require('../services/auditLog.service');
 
 async function getDashboard(req, res) {
   try {
@@ -47,6 +48,15 @@ async function getMentorDetail(req, res) {
 async function approveMentorHandler(req, res) {
   try {
     const mentor = await approveMentor(req.params.id);
+    await logAuditEvent({
+      action: 'MENTOR_APPROVED',
+      actorId: req.user.id,
+      targetId: req.params.id,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email },
+    });
     res.json({ mentor });
   } catch (e) {
     console.error('[ADMIN] Mentor approval handler crashed:', e);
@@ -59,6 +69,15 @@ async function rejectMentorHandler(req, res) {
     const { reason } = req.body;
     if (!reason) return res.status(400).json({ error: 'Reason required' });
     const mentor = await rejectMentor(req.params.id, reason);
+    await logAuditEvent({
+      action: 'MENTOR_REJECTED',
+      actorId: req.user.id,
+      targetId: req.params.id,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email, reason },
+    });
     res.json({ mentor });
   } catch (e) {
     console.error('[ADMIN] Mentor rejection handler crashed:', e);
@@ -85,6 +104,15 @@ async function toggleMentorActive(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { id: req.params.id } });
     const updated = await prisma.mentor.update({ where: { id: req.params.id }, data: { isActive: !mentor.isActive } });
+    await logAuditEvent({
+      action: 'MENTOR_TOGGLED',
+      actorId: req.user.id,
+      targetId: req.params.id,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email, isActive: updated.isActive },
+    });
     res.json({ mentor: updated });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
@@ -124,6 +152,15 @@ async function createCategory(req, res) {
   try {
     const { name, slug, icon, description } = req.body;
     const cat = await prisma.category.create({ data: { name, slug: slug || name.toLowerCase().replace(/\s+/g, '-'), icon, description } });
+    await logAuditEvent({
+      action: 'CATEGORY_CREATED',
+      actorId: req.user.id,
+      targetId: cat.id,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email, categoryName: cat.name },
+    });
     res.json({ category: cat });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
@@ -139,6 +176,15 @@ async function updateCategory(req, res) {
     if (isActive !== undefined) data.isActive = isActive;
 
     const cat = await prisma.category.update({ where: { id: req.params.id }, data });
+    await logAuditEvent({
+      action: 'CATEGORY_UPDATED',
+      actorId: req.user.id,
+      targetId: req.params.id,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email, categoryName: cat.name },
+    });
     res.json({ category: cat });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }

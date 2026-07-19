@@ -49,6 +49,7 @@ const onboardingRoutes = require('./routes/onboarding.routes');
 const googleRoutes = require('./routes/google.routes');
 const teamRoutes   = require('./routes/team.routes');
 const superAdminRoutes = require('./routes/superAdmin.routes');
+const adminManagementRoutes = require('./routes/adminManagement.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -167,6 +168,7 @@ app.use('/api/public/ai', publicAiRoutes);
 app.use('/api/google', googleRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/super-admin', superAdminRoutes);
+app.use('/api/super-admin/admin-management', adminManagementRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {

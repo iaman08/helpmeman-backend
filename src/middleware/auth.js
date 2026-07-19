@@ -10,6 +10,20 @@ async function authenticate(req, res, next) {
     const token = authHeader.split(' ')[1];
     const user = await authService.verifySession(token);
 
+    // Block disabled/deleted users
+    if (user.status === 'DISABLED') {
+      return res.status(401).json({ 
+        error: 'Your administrator account has been disabled. Please contact the Super Admin.',
+        code: 'ACCOUNT_DISABLED' 
+      });
+    }
+    if (user.status === 'DELETED') {
+      return res.status(401).json({ 
+        error: 'This account no longer exists.',
+        code: 'ACCOUNT_DELETED' 
+      });
+    }
+
     req.user = user;
 
     // Track user presence dynamically from API traffic

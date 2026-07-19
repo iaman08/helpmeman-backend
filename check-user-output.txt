@@ -1,11 +1,2 @@
 === Database Check for official.diljha@gmail.com ===
-User record: {
-  "id": "cmreoq7rj0000f8mqxx9x5pb4",
-  "name": "Yash Jha",
-  "email": "official.diljha@gmail.com",
-  "role": "USER",
-  "onboardingRole": "MENTEE"
-}
-MentorOnboarding record: NOT FOUND
-Mentor record: NOT FOUND
-MentorProfile record: NOT FOUND
+❌ User not found.

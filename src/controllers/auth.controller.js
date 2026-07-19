@@ -278,10 +278,10 @@ async function login(req, res) {
   try {
     // Local development bypass for seeded demo accounts
     if (process.env.NODE_ENV === 'development' && 
-        ['admin@helpmeman.com', 'student@helpmeman.com', 'mentor@helpmeman.com', 'official.diljha@gmail.com'].includes(email.toLowerCase()) &&
+        ['admin@helpmeman.com', 'student@helpmeman.com', 'mentor@helpmeman.com', 'official.diljha@gmail.com', 'aman@helpmeman.com'].includes(email.toLowerCase()) &&
         (password === 'password123' || password === 'mock123')) {
         
-      const role = email.toLowerCase() === 'official.diljha@gmail.com' ? 'SUPER_ADMIN' :
+      const role = (email.toLowerCase() === 'official.diljha@gmail.com' || email.toLowerCase() === 'aman@helpmeman.com') ? 'SUPER_ADMIN' :
                    email.toLowerCase() === 'admin@helpmeman.com' ? 'ADMIN' :
                    email.toLowerCase() === 'mentor@helpmeman.com' ? 'MENTOR' : 'STUDENT';
                    
@@ -360,6 +360,9 @@ async function login(req, res) {
     user = await syncUserRole(user);
 
     const mentorData = user.mentor || null;
+
+    // Track last login
+    prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
     console.log(`[AUTH] Login completed successfully for user: ${email}`);
     res.json({
@@ -572,6 +575,9 @@ async function googleLogin(req, res) {
     console.log('[AUTH] STEP 5: Searching/syncing database for user:', user.email);
     const mentorData = user.mentor || null;
     console.log('[AUTH] STEP 6: User created/found in DB. ID:', user.id);
+
+    // Track last login
+    prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
     console.log('[AUTH] STEP 7: Google session tokens sync completed. Generating response data...');
     console.log('[AUTH] STEP 8: Response sent successfully');

@@ -20,3 +20,5 @@ truncate_ai.js
 sync-log.txt
 db_columns.txt
 migration-log.txt
+scratch/
+prisma_generated.flag

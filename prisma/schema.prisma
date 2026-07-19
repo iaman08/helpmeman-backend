@@ -42,6 +42,8 @@ model User {
   lastSeen        DateTime?      @default(now())
   presenceStatus  String?        @default("OFFLINE")
   currency        String?
+  status          String         @default("ACTIVE") // ACTIVE, DISABLED, DELETED
+  lastLoginAt     DateTime?
 
   @@index([username])
 }
@@ -563,6 +565,7 @@ model AuditLog {
   newValue  String?  // New state (e.g., new role)
   endpoint  String?  // API endpoint path
   ip        String?  // Request IP address
+  userAgent String?  // Browser/client user agent string
   requestId String?  // Correlation ID
   metadata  Json?    // Additional context
   createdAt DateTime @default(now())

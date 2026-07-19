@@ -222,4 +222,86 @@ async function getRoleCounts(req, res) {
   }
 }
 
-module.exports = { listAllUsers, changeUserRole, viewAuditLogs, getRoleCounts };
+async function getDashboardStats(req, res) {
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    const [
+      totalUsers,
+      totalStudents,
+      totalMentors,
+      totalAdmins,
+      totalBookings,
+      pendingMentorApplications,
+      totalRevenueAgg,
+      monthlyRevenueAgg,
+      recentActivities
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { role: 'STUDENT' } }),
+      prisma.user.count({ where: { role: 'MENTOR' } }),
+      prisma.user.count({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } }),
+      prisma.booking.count(),
+      prisma.mentor.count({ where: { approvalStatus: 'PENDING' } }),
+      prisma.earning.aggregate({ _sum: { amount: true } }),
+      prisma.earning.aggregate({ where: { createdAt: { gte: startOfMonth } }, _sum: { amount: true } }),
+      prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 10 })
+    ]);
+    
+    res.json({
+      data: {
+        totalUsers,
+        totalStudents,
+        totalMentors,
+        totalAdmins,
+        activeSessions: totalUsers, // For now, just return totalUsers
+        totalRevenue: totalRevenueAgg._sum.amount || 0,
+        monthlyRevenue: monthlyRevenueAgg._sum.amount || 0,
+        totalBookings,
+        pendingMentorApplications,
+        recentActivities
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching super admin stats:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard stats' });
+  }
+}
+
+async function getSystemHealth(req, res) {
+  try {
+    let dbStatus = 'healthy';
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (e) {
+      dbStatus = 'degraded';
+    }
+    
+    let supabaseStatus = 'healthy';
+    try {
+      const config = require('../config/env');
+      const { createClient } = require('@supabase/supabase-js');
+      const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
+      await supabase.auth.getSession();
+    } catch (e) {
+      supabaseStatus = 'degraded';
+    }
+    
+    res.json({
+      data: {
+        database: dbStatus,
+        api: 'healthy',
+        supabase: supabaseStatus,
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error checking system health:', error);
+    res.status(500).json({ error: 'Failed to check system health' });
+  }
+}
+
+module.exports = { listAllUsers, changeUserRole, viewAuditLogs, getRoleCounts, getDashboardStats, getSystemHealth };
