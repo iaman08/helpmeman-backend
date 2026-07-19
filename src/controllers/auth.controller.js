@@ -613,6 +613,19 @@ async function googleLogin(req, res) {
       errorCode = 'GOOGLE_CLIENT_ID_MISMATCH';
     }
 
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const debugPrisma = new PrismaClient();
+      await debugPrisma.emailDeliveryLog.create({
+        data: {
+          emailType: 'DEBUG_AUTH_' + errorCode,
+          status: 'FAILED',
+          error: String(error.message || error).substring(0, 500)
+        }
+      });
+      await debugPrisma.$disconnect();
+    } catch(e) {}
+
     res.status(401).json({ 
       error: 'Google authentication failed. Please try again.', 
       code: errorCode 
