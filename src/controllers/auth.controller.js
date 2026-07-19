@@ -618,9 +618,9 @@ async function googleLogin(req, res) {
       const debugPrisma = new PrismaClient();
       await debugPrisma.emailDeliveryLog.create({
         data: {
-          emailType: 'DEBUG_AUTH_' + errorCode,
+          templateType: 'DEBUG_AUTH_' + errorCode,
           status: 'FAILED',
-          error: String(error.message || error).substring(0, 500)
+          errorMessage: String(error.message || error).substring(0, 500)
         }
       });
       await debugPrisma.$disconnect();
