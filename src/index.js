@@ -198,7 +198,9 @@ app.get('/api/debug/supabase-check', async (req, res) => {
       NODE_ENV: process.env.NODE_ENV,
       FRONTEND_URL: envConfig.frontendUrl,
       DATABASE_URL_SET: !!process.env.DATABASE_URL,
-      DATABASE_URL_PREFIX: process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 60) + '...' : 'NOT SET',
+      DATABASE_URL_PREFIX: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
+      DIRECT_URL_SET: !!process.env.DIRECT_URL,
+      DIRECT_URL_PREFIX: process.env.DIRECT_URL ? process.env.DIRECT_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
     };
 
     // Try to actually call Supabase
