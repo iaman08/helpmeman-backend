@@ -327,36 +327,11 @@ async function login(req, res) {
 
     if (error || !data.user || !data.session) {
       console.warn(`[AUTH] Login failed for email: ${email}. Error: ${error?.message}`);
-      return res.status(401).json({ 
-        error: 'Invalid email or password',
-        details: error?.message || 'No user session returned'
-      });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const mentorInclude = {
-      mentor: {
-        select: { id: true, approvalStatus: true, isActive: true }
-      }
-    };
-
-    let user = await prisma.user.findUnique({ 
-      where: { id: data.user.id },
-      include: mentorInclude
-    });
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          id: data.user.id,
-          name: data.user.user_metadata?.name || email.split('@')[0],
-          email: email.toLowerCase(),
-          passwordHash: '',
-          role: data.user.user_metadata?.role || 'STUDENT',
-          isEmailVerified: true,
-        },
-        include: mentorInclude
-      });
-    }
+    const userService = require('../services/user.service');
+    let user = await userService.findOrCreateUser(data.user);
 
     // Call role synchronization (upgrade-only safety rule)
     const { syncUserRole } = require('../services/roleSync.service');
@@ -633,8 +608,7 @@ async function googleLogin(req, res) {
 
     res.status(401).json({ 
       error: 'Google authentication failed. Please try again.', 
-      code: errorCode,
-      details: String(error.message || error).substring(0, 500)
+      code: errorCode 
     });
   }
 }
