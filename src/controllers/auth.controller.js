@@ -630,7 +630,8 @@ async function googleLogin(req, res) {
 
     res.status(401).json({ 
       error: 'Google authentication failed. Please try again.', 
-      code: errorCode 
+      code: errorCode,
+      details: String(error.message || error).substring(0, 500)
     });
   }
 }
