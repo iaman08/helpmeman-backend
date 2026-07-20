@@ -327,7 +327,10 @@ async function login(req, res) {
 
     if (error || !data.user || !data.session) {
       console.warn(`[AUTH] Login failed for email: ${email}. Error: ${error?.message}`);
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ 
+        error: 'Invalid email or password',
+        details: error?.message || 'No user session returned'
+      });
     }
 
     const mentorInclude = {
