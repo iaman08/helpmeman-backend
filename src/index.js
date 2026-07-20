@@ -197,6 +197,8 @@ app.get('/api/debug/supabase-check', async (req, res) => {
       SERVICE_ROLE_KEY_PREFIX: serviceKey ? serviceKey.substring(0, 20) + '...' : 'NOT SET',
       NODE_ENV: process.env.NODE_ENV,
       FRONTEND_URL: envConfig.frontendUrl,
+      DATABASE_URL_SET: !!process.env.DATABASE_URL,
+      DATABASE_URL_PREFIX: process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 60) + '...' : 'NOT SET',
     };
 
     // Try to actually call Supabase
@@ -206,6 +208,24 @@ app.get('/api/debug/supabase-check', async (req, res) => {
       diagnostics.SUPABASE_CONNECTION = error ? `ERROR: ${error.message}` : `OK (found ${data.users.length} user(s))`;
     } catch (e) {
       diagnostics.SUPABASE_CONNECTION = `EXCEPTION: ${e.message}`;
+    }
+
+    // Check database User table columns
+    try {
+      const prisma = require('./config/prisma');
+      const columns = await prisma.$queryRaw`SELECT column_name FROM information_schema.columns WHERE table_name = 'User' ORDER BY ordinal_position`;
+      diagnostics.USER_TABLE_COLUMNS = columns.map(c => c.column_name);
+    } catch (e) {
+      diagnostics.USER_TABLE_COLUMNS = `ERROR: ${e.message}`;
+    }
+
+    // Try a basic User query
+    try {
+      const prisma = require('./config/prisma');
+      const count = await prisma.user.count();
+      diagnostics.USER_COUNT = count;
+    } catch (e) {
+      diagnostics.USER_QUERY_ERROR = e.message.substring(0, 300);
     }
 
     res.json(diagnostics);
