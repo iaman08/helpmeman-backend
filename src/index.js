@@ -182,6 +182,38 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Temporary diagnostic endpoint (REMOVE AFTER DEBUGGING)
+app.get('/api/debug/supabase-check', async (req, res) => {
+  try {
+    const envConfig = require('./config/env');
+    const supabaseUrl = envConfig.supabase?.url;
+    const serviceKey = envConfig.supabase?.serviceRoleKey;
+
+    const diagnostics = {
+      SUPABASE_URL_SET: !!supabaseUrl,
+      SUPABASE_URL_PREFIX: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'NOT SET',
+      SERVICE_ROLE_KEY_SET: !!serviceKey,
+      SERVICE_ROLE_KEY_LENGTH: serviceKey ? serviceKey.length : 0,
+      SERVICE_ROLE_KEY_PREFIX: serviceKey ? serviceKey.substring(0, 20) + '...' : 'NOT SET',
+      NODE_ENV: process.env.NODE_ENV,
+      FRONTEND_URL: envConfig.frontendUrl,
+    };
+
+    // Try to actually call Supabase
+    try {
+      const supabase = require('./config/supabase');
+      const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1 });
+      diagnostics.SUPABASE_CONNECTION = error ? `ERROR: ${error.message}` : `OK (found ${data.users.length} user(s))`;
+    } catch (e) {
+      diagnostics.SUPABASE_CONNECTION = `EXCEPTION: ${e.message}`;
+    }
+
+    res.json(diagnostics);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
