@@ -186,48 +186,61 @@ app.get('/api/health', async (req, res) => {
 app.get('/api/debug/supabase-check', async (req, res) => {
   try {
     const envConfig = require('./config/env');
-    const supabaseUrl = envConfig.supabase?.url;
-    const serviceKey = envConfig.supabase?.serviceRoleKey;
-
+    const prisma = require('./config/prisma');
     const diagnostics = {
-      SUPABASE_URL_SET: !!supabaseUrl,
-      SUPABASE_URL_PREFIX: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'NOT SET',
-      SERVICE_ROLE_KEY_SET: !!serviceKey,
-      SERVICE_ROLE_KEY_LENGTH: serviceKey ? serviceKey.length : 0,
-      SERVICE_ROLE_KEY_PREFIX: serviceKey ? serviceKey.substring(0, 20) + '...' : 'NOT SET',
       NODE_ENV: process.env.NODE_ENV,
-      FRONTEND_URL: envConfig.frontendUrl,
-      DATABASE_URL_SET: !!process.env.DATABASE_URL,
-      DATABASE_URL_PREFIX: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
-      DIRECT_URL_SET: !!process.env.DIRECT_URL,
-      DIRECT_URL_PREFIX: process.env.DIRECT_URL ? process.env.DIRECT_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
+      DATABASE_URL: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
+      DIRECT_URL: process.env.DIRECT_URL ? process.env.DIRECT_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
     };
 
-    // Try to actually call Supabase
+    // User count and recent users
     try {
-      const supabase = require('./config/supabase');
-      const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1 });
-      diagnostics.SUPABASE_CONNECTION = error ? `ERROR: ${error.message}` : `OK (found ${data.users.length} user(s))`;
+      const users = await prisma.$queryRaw`SELECT id, email, role, "createdAt" FROM "User" ORDER BY "createdAt" DESC LIMIT 20`;
+      diagnostics.USER_COUNT = users.length;
+      diagnostics.RECENT_USERS = users.map(u => ({
+        id: u.id.substring(0, 16) + '...',
+        email: u.email,
+        role: u.role,
+        createdAt: u.createdAt
+      }));
     } catch (e) {
-      diagnostics.SUPABASE_CONNECTION = `EXCEPTION: ${e.message}`;
+      diagnostics.USER_ERROR = e.message.substring(0, 300);
     }
 
-    // Check database User table columns
+    // User columns
     try {
-      const prisma = require('./config/prisma');
-      const columns = await prisma.$queryRaw`SELECT column_name FROM information_schema.columns WHERE table_name = 'User' ORDER BY ordinal_position`;
-      diagnostics.USER_TABLE_COLUMNS = columns.map(c => c.column_name);
+      const cols = await prisma.$queryRaw`SELECT column_name FROM information_schema.columns WHERE table_name = 'User' ORDER BY ordinal_position`;
+      diagnostics.USER_COLUMNS = cols.map(c => c.column_name);
     } catch (e) {
-      diagnostics.USER_TABLE_COLUMNS = `ERROR: ${e.message}`;
+      diagnostics.USER_COLUMNS_ERROR = e.message.substring(0, 200);
     }
 
-    // Try a basic User query
+    // Role enum
     try {
-      const prisma = require('./config/prisma');
-      const count = await prisma.user.count();
-      diagnostics.USER_COUNT = count;
+      const roles = await prisma.$queryRaw`SELECT unnest(enum_range(NULL::"Role"))::text as value`;
+      diagnostics.ROLE_ENUM = roles.map(r => r.value);
     } catch (e) {
-      diagnostics.USER_QUERY_ERROR = e.message.substring(0, 300);
+      diagnostics.ROLE_ENUM_ERROR = e.message.substring(0, 200);
+    }
+
+    // Key table row counts
+    const tables = ['Booking', 'Mentor', 'TeamMember', 'AuditLog', 'Category', 'ChatThread', 'Notification', 'EmailDeliveryLog', 'OtpCode', 'Review', 'Complaint', 'BlockedDate'];
+    diagnostics.TABLE_COUNTS = {};
+    for (const table of tables) {
+      try {
+        const result = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "${table}"`);
+        diagnostics.TABLE_COUNTS[table] = result[0]?.count;
+      } catch (e) {
+        diagnostics.TABLE_COUNTS[table] = 'DOES_NOT_EXIST';
+      }
+    }
+
+    // _prisma_migrations
+    try {
+      const migrations = await prisma.$queryRaw`SELECT migration_name FROM _prisma_migrations ORDER BY started_at`;
+      diagnostics.PRISMA_MIGRATIONS = migrations.map(m => m.migration_name);
+    } catch (e) {
+      diagnostics.PRISMA_MIGRATIONS = 'TABLE_DOES_NOT_EXIST';
     }
 
     res.json(diagnostics);
