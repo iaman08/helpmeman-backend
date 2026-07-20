@@ -3,7 +3,7 @@ const aiService = require('../services/ai.service');
 // POST /api/ai/chat
 async function chatWithAI(req, res) {
   try {
-    const { message, sessionId } = req.body;
+    const { message, sessionId, ruthlessMode } = req.body;
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -14,7 +14,7 @@ async function chatWithAI(req, res) {
     const userId = req.user.id;
     const userName = req.user.name || 'Student';
 
-    const result = await aiService.chat(userId, userName, message.trim(), sessionId || null);
+    const result = await aiService.chat(userId, userName, message.trim(), sessionId || null, !!ruthlessMode);
     res.json(result);
   } catch (error) {
     console.error('AI chat error:', error.message);
@@ -31,7 +31,7 @@ async function chatWithAI(req, res) {
 // POST /api/ai/chat/stream — SSE streaming
 async function chatWithAIStream(req, res) {
   try {
-    const { message, sessionId } = req.body;
+    const { message, sessionId, ruthlessMode } = req.body;
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -43,7 +43,7 @@ async function chatWithAIStream(req, res) {
     const userName = req.user.name || 'Student';
 
     // chatStream handles SSE headers and writing directly to res
-    await aiService.chatStream(userId, userName, message.trim(), sessionId || null, res);
+    await aiService.chatStream(userId, userName, message.trim(), sessionId || null, res, !!ruthlessMode);
   } catch (error) {
     console.error('AI stream error:', error.message);
     if (!res.headersSent) {
