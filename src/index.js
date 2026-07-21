@@ -52,41 +52,49 @@ const superAdminRoutes = require('./routes/superAdmin.routes');
 const adminManagementRoutes = require('./routes/adminManagement.routes');
 
 const app = express();
-app.set('trust proxy', 1);
+// Enable proxy trust across multi-tier reverse proxies (Cloudflare + DigitalOcean Load Balancer)
+app.set('trust proxy', true);
 const server = http.createServer(app);
 
-const allowedOrigins = [config.frontendUrl].filter(Boolean);
+// Clean & normalize origins (strip trailing slashes)
+const configuredFrontend = config.frontendUrl ? config.frontendUrl.replace(/\/+$/, '') : null;
+const allowedOrigins = [configuredFrontend, 'http://localhost:3000', 'http://localhost:8081', 'http://127.0.0.1:3000', 'http://127.0.0.1:8081'].filter(Boolean);
+
 const corsOriginCheck = (origin, callback) => {
   // No origin = server-to-server / curl / mobile — allow
   if (!origin) return callback(null, true);
 
-  const isLocalDev = (config.nodeEnv === 'development' || config.nodeEnv !== 'production') && (
-    origin.startsWith('http://localhost:') ||
-    origin.startsWith('http://127.0.0.1:') ||
-    origin.startsWith('http://192.168.') ||
-    origin.startsWith('http://10.')
-  );
+  const cleanOrigin = origin.replace(/\/+$/, '');
 
+  // Local development origin pattern
+  const isLocalDev =
+    cleanOrigin.startsWith('http://localhost:') ||
+    cleanOrigin.startsWith('http://127.0.0.1:') ||
+    cleanOrigin.startsWith('http://192.168.') ||
+    cleanOrigin.startsWith('http://10.');
+
+  // Vercel deployment origins
   const isVercelOrigin =
-    origin === 'https://helpmeman-frontend.vercel.app' ||
-    /^https:\/\/helpmeman-frontend-[a-z0-9-]+\.vercel\.app$/.test(origin);
+    cleanOrigin === 'https://helpmeman-frontend.vercel.app' ||
+    /^https:\/\/helpmeman-frontend-[a-z0-9-]+\.vercel\.app$/.test(cleanOrigin);
 
+  // Custom domain origins
   const isCustomDomain =
-    origin === 'https://helpmeman.com' ||
-    origin === 'https://www.helpmeman.com' ||
-    origin.endsWith('.helpmeman.com');
+    cleanOrigin === 'https://helpmeman.com' ||
+    cleanOrigin === 'https://www.helpmeman.com' ||
+    cleanOrigin.endsWith('.helpmeman.com') ||
+    cleanOrigin.endsWith('.ondigitalocean.app');
 
-  const isAllowedOrigin = allowedOrigins.includes(origin);
+  const isExplicitlyAllowed = allowedOrigins.includes(cleanOrigin);
 
-  if (isAllowedOrigin || isLocalDev || isVercelOrigin || isCustomDomain) {
+  if (isExplicitlyAllowed || isLocalDev || isVercelOrigin || isCustomDomain) {
     callback(null, true);
   } else {
-    // Silently reject — do NOT pass an Error to avoid unhandled exception noise
-    console.warn(`[CORS] Blocked origin: ${origin}`);
+    console.warn(`[CORS] Blocked unlisted origin: ${origin}`);
+    // Still pass null, false so express-cors handles it, but log clearly
     callback(null, false);
   }
 };
-
 
 // Socket.io
 const io = new Server(server, {
@@ -94,6 +102,19 @@ const io = new Server(server, {
 });
 app.io = io;
 setupChatSocket(io);
+
+// Enable CORS middleware globally
+const corsMiddleware = cors({
+  origin: corsOriginCheck,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-show-loader', 'Cache-Control', 'Pragma', 'Expires'],
+  exposedHeaders: ['X-Response-Time'],
+});
+
+// Explicit OPTIONS preflight handling BEFORE any rate limiters or auth guards
+app.options('*', corsMiddleware);
+app.use(corsMiddleware);
 
 // Middleware
 app.use(helmet({
@@ -120,6 +141,7 @@ app.use(helmet({
     preload: true,
   },
 }));
+
 app.use((req, res, next) => {
   res.setHeader(
     'Permissions-Policy',
@@ -127,9 +149,19 @@ app.use((req, res, next) => {
   );
   next();
 });
-app.use(cors({ origin: corsOriginCheck, credentials: true }));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Detailed auth request diagnostic logger
+app.use('/api/auth', (req, res, next) => {
+  const origin = req.headers.origin || 'NO_ORIGIN';
+  const host = req.headers.host || 'NO_HOST';
+  const xForwardedHost = req.headers['x-forwarded-host'] || 'NONE';
+  console.log(`[AUTH REGISTRY DIAGNOSTIC] Method: ${req.method} | Path: ${req.path} | Origin: ${origin} | Host: ${host} | X-Forwarded-Host: ${xForwardedHost}`);
+  next();
+});
+
 app.use(generalLimiter);
 app.use(gzipMiddleware);
 
