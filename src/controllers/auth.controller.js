@@ -99,6 +99,7 @@ async function verifySignupOTP(req, res) {
           phone: phone || null,
           role: 'STUDENT',
           isEmailVerified: true,
+          onboardingRole: 'MENTEE',
         },
       });
     }

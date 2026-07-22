@@ -57,6 +57,7 @@ async function findOrCreateUser(supabaseUser) {
           avatar: avatar,
           role: 'STUDENT',
           isEmailVerified: isEmailVerified,
+          onboardingRole: 'MENTEE',
         },
         include: mentorInclude
       });
