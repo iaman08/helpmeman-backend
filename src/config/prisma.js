@@ -201,6 +201,8 @@ if (process.env.NODE_ENV === 'production') {
 })();
 
 // Singleton with global auto-retry middleware for Supabase cold-start wakeup.
+// NOTE: P2024 (connection pool timeout) is explicitly NOT retried — retrying
+// exhausted-pool errors only makes the situation worse by holding slots longer.
 prisma.$use(async (params, next) => {
   const maxRetries = 3;
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -208,6 +210,9 @@ prisma.$use(async (params, next) => {
     try {
       return await next(params);
     } catch (err) {
+      // P2024 = connection pool timeout — do NOT retry, throw immediately.
+      if (err.code === 'P2024') throw err;
+
       const isConnErr =
         err.message?.includes("Can't reach database") ||
         err.message?.includes('Unable to start a transaction') ||
