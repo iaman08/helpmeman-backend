@@ -429,7 +429,10 @@ async function forgotPassword(req, res) {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
-    await supabase.auth.resetPasswordForEmail(email.toLowerCase());
+    const frontendUrl = config.frontendUrl || process.env.FRONTEND_URL || 'http://localhost:3000';
+    await supabase.auth.resetPasswordForEmail(email.toLowerCase(), {
+      redirectTo: `${frontendUrl}/reset-password`,
+    });
     res.json({ message: 'If account exists, reset instructions sent to email' });
   } catch (error) {
     console.error('Forgot password error:', error);
