@@ -194,6 +194,51 @@ if (process.env.NODE_ENV === 'production') {
       console.error('[DB] Inline diagnostics failed:', e.message);
     }
 
+    console.log('[DB] Verifying MentorReview table in PostgreSQL...');
+    // Add aggregate columns to Mentor if not exists
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "Mentor"
+        ADD COLUMN IF NOT EXISTS "avgRating" FLOAT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS "totalReviews" INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS "ratingDistribution" JSONB NOT NULL DEFAULT '{"1":0,"2":0,"3":0,"4":0,"5":0}'::jsonb;
+    `);
+    // Create MentorReview table
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "MentorReview" (
+        "id" TEXT NOT NULL,
+        "bookingId" TEXT NOT NULL,
+        "mentorId" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "rating" INTEGER NOT NULL,
+        "feedback" TEXT,
+        "tags" TEXT[] NOT NULL DEFAULT '{}',
+        "anonymous" BOOLEAN NOT NULL DEFAULT false,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "MentorReview_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "MentorReview_rating_check" CHECK ("rating" >= 1 AND "rating" <= 5),
+        CONSTRAINT "MentorReview_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "MentorReview_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      );
+    `);
+    // Unique one review per booking
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "MentorReview_bookingId_key" ON "MentorReview"("bookingId");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "MentorReview_mentorId_idx" ON "MentorReview"("mentorId");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "MentorReview_userId_idx" ON "MentorReview"("userId");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "MentorReview_rating_idx" ON "MentorReview"("rating");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "MentorReview_createdAt_idx" ON "MentorReview"("createdAt" DESC);
+    `);
+    console.log('[DB] MentorReview table schema verification complete ✓');
+
     console.log('[DB] Verification finished.');
   } catch (err) {
     console.error('[DB] MessageReaction dynamic migration failed:', err.message);

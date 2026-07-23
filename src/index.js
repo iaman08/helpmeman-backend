@@ -50,6 +50,7 @@ const googleRoutes = require('./routes/google.routes');
 const teamRoutes   = require('./routes/team.routes');
 const superAdminRoutes = require('./routes/superAdmin.routes');
 const adminManagementRoutes = require('./routes/adminManagement.routes');
+const reviewRoutes = require('./routes/review.routes');
 
 const app = express();
 // Enable proxy trust across multi-tier reverse proxies (Cloudflare + DigitalOcean Load Balancer)
@@ -202,6 +203,7 @@ app.use('/api/google', googleRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/super-admin/admin-management', adminManagementRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {
