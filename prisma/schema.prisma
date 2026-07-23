@@ -43,7 +43,11 @@ model User {
   presenceStatus  String?        @default("OFFLINE")
   currency        String?
   status          String         @default("ACTIVE") // ACTIVE, DISABLED, DELETED
-  lastLoginAt     DateTime?
+  platformReviewSubmitted  Boolean          @default(false)
+  lastReviewPromptAt       DateTime?
+  reviewPromptDismissCount Int              @default(0)
+  reviewCooldownUntil      DateTime?
+  platformReviews          PlatformReview[]
 
   @@index([username])
 }
@@ -574,3 +578,20 @@ model AuditLog {
   @@index([targetId, createdAt])
   @@index([action, createdAt])
 }
+
+model PlatformReview {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  feedback  String?  @db.Text
+  tags      String[]
+  anonymous Boolean  @default(false)
+  approved  Boolean  @default(false)
+  featured  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([approved, featured, createdAt])
+}
+

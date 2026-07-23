@@ -96,7 +96,6 @@ if (process.env.NODE_ENV === 'production') {
     `);
     console.log('[DB] MessageReaction and ChatMessage schema migration complete ✓');
 
-    console.log('[DB] Verifying User table columns in PostgreSQL...');
     await prisma.$executeRawUnsafe(`
       ALTER TABLE "User" 
         ADD COLUMN IF NOT EXISTS "onboardingRole" TEXT,
@@ -104,7 +103,11 @@ if (process.env.NODE_ENV === 'production') {
         ADD COLUMN IF NOT EXISTS "currentRole" TEXT,
         ADD COLUMN IF NOT EXISTS "lastSeen" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
         ADD COLUMN IF NOT EXISTS "presenceStatus" TEXT DEFAULT 'OFFLINE',
-        ADD COLUMN IF NOT EXISTS "currency" TEXT;
+        ADD COLUMN IF NOT EXISTS "currency" TEXT,
+        ADD COLUMN IF NOT EXISTS "platformReviewSubmitted" BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS "lastReviewPromptAt" TIMESTAMP(3),
+        ADD COLUMN IF NOT EXISTS "reviewPromptDismissCount" INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS "reviewCooldownUntil" TIMESTAMP(3);
     `);
 
     // Create unique index and index on username
@@ -115,6 +118,47 @@ if (process.env.NODE_ENV === 'production') {
       CREATE INDEX IF NOT EXISTS "User_username_idx" ON "User"("username");
     `);
     console.log('[DB] User table schema verification complete ✓');
+
+    console.log('[DB] Verifying PlatformReview table in PostgreSQL...');
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "PlatformReview" (
+        "id" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "rating" INTEGER NOT NULL,
+        "feedback" TEXT,
+        "tags" TEXT[] NOT NULL DEFAULT '{}',
+        "anonymous" BOOLEAN NOT NULL DEFAULT false,
+        "approved" BOOLEAN NOT NULL DEFAULT false,
+        "featured" BOOLEAN NOT NULL DEFAULT false,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        CONSTRAINT "PlatformReview_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "PlatformReview_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "PlatformReview_userId_key" ON "PlatformReview"("userId");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "PlatformReview_approved_featured_createdAt_idx" ON "PlatformReview"("approved", "featured", "createdAt");
+    `);
+    await prisma.$executeRawUnsafe(`
+      UPDATE "PlatformReview" SET "approved" = true WHERE "approved" = false;
+    `);
+    console.log('[DB] PlatformReview table schema verification complete ✓');
+
+    // Automatically regenerate Prisma Client JS SDK if platformReview model is not yet attached
+    if (!prisma.platformReview) {
+      try {
+        console.log('[DB] Generating updated Prisma Client for PlatformReview...');
+        const prismaDir = path.join(__dirname, '..', '..');
+        execSync('npx prisma generate', { cwd: prismaDir, stdio: 'ignore' });
+        console.log('[DB] Prisma Client generated successfully ✓');
+      } catch (genErr) {
+        console.error('[DB] Automatic prisma generate skipped/failed:', genErr.message);
+      }
+    }
 
     console.log('[DB] Verifying TeamMember table in PostgreSQL...');
     await prisma.$executeRawUnsafe(`
