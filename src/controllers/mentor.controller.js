@@ -380,6 +380,156 @@ async function deleteBlockedDate(req, res) {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 
+async function logInteraction(req, res) {
+  try {
+    const { actionType, mentorId, timeSpent, matchScore, filters } = req.body;
+
+    if (!actionType || !mentorId) {
+      return res.status(400).json({ error: 'actionType and mentorId are required' });
+    }
+
+    const log = await prisma.auditLog.create({
+      data: {
+        action: 'MENTOR_SWIPE_INTERACTION',
+        actorId: req.user ? req.user.id : 'anonymous',
+        targetId: mentorId,
+        metadata: {
+          type: actionType, // skipped, interested, priority, saved, viewed, profile_opened, chat_started, session_booked
+          timeSpent: timeSpent || null,
+          matchScore: matchScore || null,
+          filters: filters || null,
+        },
+      },
+    });
+
+    res.status(201).json({ success: true, logId: log.id });
+  } catch (error) {
+    console.error('Failed to log mentor interaction:', error);
+    res.status(500).json({ error: 'Failed to save interaction' });
+  }
+}
+
+async function getInteractionAnalytics(req, res) {
+  try {
+    const logs = await prisma.auditLog.findMany({
+      where: { action: 'MENTOR_SWIPE_INTERACTION' },
+    });
+
+    let totalSwipes = 0;
+    let skippedCount = 0;
+    let interestedCount = 0;
+    let priorityCount = 0;
+    let savedCount = 0;
+    let viewedCount = 0;
+    let profileOpenedCount = 0;
+    let chatStartedCount = 0;
+    let sessionBookedCount = 0;
+    let totalTimeSpent = 0;
+    let timeSpentCount = 0;
+
+    const mentorLikes = {}; // mentorId -> count
+    const filterUsage = {}; // filterKey -> count
+    const scoreBuckets = { '0-20': 0, '21-40': 0, '41-60': 0, '61-80': 0, '81-100': 0 };
+
+    let highMatchCount = 0;
+    let highMatchInterestedCount = 0;
+
+    for (const log of logs) {
+      const meta = log.metadata || {};
+      const type = meta.type || '';
+      
+      if (type === 'skipped' || type === 'interested' || type === 'priority') {
+        totalSwipes++;
+        if (type === 'skipped') skippedCount++;
+        if (type === 'interested') interestedCount++;
+        if (type === 'priority') priorityCount++;
+
+        const score = meta.matchScore;
+        if (typeof score === 'number') {
+          if (score >= 80) {
+            highMatchCount++;
+            if (type === 'interested' || type === 'priority') {
+              highMatchInterestedCount++;
+            }
+          }
+          if (score <= 20) scoreBuckets['0-20']++;
+          else if (score <= 40) scoreBuckets['21-40']++;
+          else if (score <= 60) scoreBuckets['41-60']++;
+          else if (score <= 80) scoreBuckets['61-80']++;
+          else scoreBuckets['81-100']++;
+        }
+      }
+
+      if (type === 'saved') savedCount++;
+      if (type === 'viewed') viewedCount++;
+      if (type === 'profile_opened') profileOpenedCount++;
+      if (type === 'chat_started') chatStartedCount++;
+      if (type === 'session_booked') sessionBookedCount++;
+
+      if (typeof meta.timeSpent === 'number' && meta.timeSpent > 0) {
+        totalTimeSpent += meta.timeSpent;
+        timeSpentCount++;
+      }
+
+      if ((type === 'interested' || type === 'priority') && log.targetId) {
+        mentorLikes[log.targetId] = (mentorLikes[log.targetId] || 0) + 1;
+      }
+
+      if (meta.filters && typeof meta.filters === 'object') {
+        Object.keys(meta.filters).forEach(key => {
+          if (meta.filters[key] !== undefined && meta.filters[key] !== '' && meta.filters[key] !== null) {
+            filterUsage[key] = (filterUsage[key] || 0) + 1;
+          }
+        });
+      }
+    }
+
+    const swipeConversionRate = totalSwipes > 0 ? ((interestedCount + priorityCount) / totalSwipes) * 100 : 0;
+    const likeRate = totalSwipes > 0 ? (interestedCount / totalSwipes) * 100 : 0;
+    const bookingRate = (interestedCount + priorityCount) > 0 ? (sessionBookedCount / (interestedCount + priorityCount)) * 100 : 0;
+    const avgTimeSpent = timeSpentCount > 0 ? totalTimeSpent / timeSpentCount : 0;
+    const aiRecommendationAccuracy = highMatchCount > 0 ? (highMatchInterestedCount / highMatchCount) * 100 : 0;
+
+    // Get most liked mentors profiles
+    const topMentorIds = Object.keys(mentorLikes)
+      .sort((a, b) => mentorLikes[b] - mentorLikes[a])
+      .slice(0, 5);
+
+    const topMentors = await prisma.mentor.findMany({
+      where: { id: { in: topMentorIds } },
+      select: { id: true, displayName: true, currentRole: true, avatar: true },
+    });
+
+    const topMentorsWithCount = topMentors.map(m => ({
+      ...m,
+      likesCount: mentorLikes[m.id] || 0,
+    })).sort((a, b) => b.likesCount - a.likesCount);
+
+    res.json({
+      totalSwipes,
+      skippedCount,
+      interestedCount,
+      priorityCount,
+      savedCount,
+      viewedCount,
+      profileOpenedCount,
+      chatStartedCount,
+      sessionBookedCount,
+      swipeConversionRate: Math.round(swipeConversionRate * 10) / 10,
+      likeRate: Math.round(likeRate * 10) / 10,
+      bookingRate: Math.round(bookingRate * 10) / 10,
+      avgTimeSpentSeconds: Math.round(avgTimeSpent),
+      aiRecommendationAccuracy: Math.round(aiRecommendationAccuracy * 10) / 10,
+      topLikedMentors: topMentorsWithCount,
+      filterUsage,
+      matchScoreDistribution: scoreBuckets,
+    });
+  } catch (error) {
+    console.error('Failed to get interaction analytics:', error);
+    res.status(500).json({ error: 'Failed to process analytics data' });
+  }
+}
+
 module.exports = {
   searchMentors,
   getMentorPublic,
@@ -400,5 +550,7 @@ module.exports = {
   getBlockedDates,
   addBlockedDate,
   deleteBlockedDate,
+  logInteraction,
+  getInteractionAnalytics,
 };
 
