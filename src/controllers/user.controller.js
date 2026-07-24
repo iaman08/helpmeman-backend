@@ -212,6 +212,7 @@ async function updateNotificationPrefs(req, res) {
       'accountUpdates',
       'messages',
       'mentorUpdates',
+      'chatSounds',
     ];
     const data = {};
     for (const key of allowed) {

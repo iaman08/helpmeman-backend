@@ -149,6 +149,7 @@ model UserNotificationPreference {
   accountUpdates      Boolean @default(true)
   messages            Boolean @default(true)
   mentorUpdates       Boolean @default(true)
+  chatSounds          Boolean @default(true)
   updatedAt           DateTime @updatedAt
 }
 
