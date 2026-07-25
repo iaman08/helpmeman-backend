@@ -160,7 +160,7 @@ async function getMentorReviews(req, res) {
   try {
     const { mentorId } = req.params;
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(20, parseInt(req.query.limit) || 10);
+    const limit = Math.min(100, parseInt(req.query.limit) || 10);
     const offset = (page - 1) * limit;
 
     const [countRow] = await prisma.$queryRawUnsafe(
@@ -173,7 +173,8 @@ async function getMentorReviews(req, res) {
       `SELECT r.id, r.rating, r.feedback, r.tags, r.anonymous,
               r."createdAt", r."updatedAt",
               CASE WHEN r.anonymous THEN NULL ELSE u.name END as "userName",
-              CASE WHEN r.anonymous THEN NULL ELSE u.avatar END as "userAvatar"
+              CASE WHEN r.anonymous THEN NULL ELSE u.avatar END as "userAvatar",
+              CASE WHEN r.anonymous THEN NULL ELSE u."currentRole" END as "userRole"
        FROM "MentorReview" r
        JOIN "User" u ON u.id = r."userId"
        WHERE r."mentorId" = $1

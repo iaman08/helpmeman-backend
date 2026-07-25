@@ -14,6 +14,7 @@
     "db:seed": "node prisma/seed.js",
     "db:studio": "npx prisma studio",
     "db:test": "node scratch-db-test.js",
+    "check-db": "node scratch_check_db.js",
     "test-smtp": "node src/test-smtp.js",
     "test-chat": "node test_chat.js"
   },

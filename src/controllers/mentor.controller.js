@@ -114,13 +114,51 @@ async function getMentorAvailability(req, res) {
 
 async function getMentorReviews(req, res) {
   try {
-    const { page = 1, limit = 10 } = req.query;
-    const [reviews, total] = await Promise.all([
-      prisma.review.findMany({ where: { mentorId: req.params.id, isVisible: true }, include: { user: { select: { name: true, avatar: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
-      prisma.review.count({ where: { mentorId: req.params.id, isVisible: true } }),
-    ]);
-    res.json({ reviews, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+    let mentorId = req.params.id;
+    if (!mentorId && req.user) {
+      const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+      if (mentor) mentorId = mentor.id;
+    }
+    if (!mentorId) {
+      return res.status(400).json({ error: 'Mentor ID is required' });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 10);
+    const offset = (page - 1) * limit;
+
+    const [countRow] = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) as total FROM "MentorReview" WHERE "mentorId" = $1`,
+      mentorId
+    );
+    const total = Number(countRow?.total ?? 0);
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT r.id, r.rating, r.feedback, r.tags, r.anonymous,
+              r."createdAt", r."updatedAt",
+              CASE WHEN r.anonymous THEN NULL ELSE u.name END as "userName",
+              CASE WHEN r.anonymous THEN NULL ELSE u.avatar END as "userAvatar",
+              CASE WHEN r.anonymous THEN NULL ELSE u."currentRole" END as "userRole"
+       FROM "MentorReview" r
+       JOIN "User" u ON u.id = r."userId"
+       WHERE r."mentorId" = $1
+       ORDER BY r."createdAt" DESC
+       LIMIT $2 OFFSET $3`,
+      mentorId,
+      limit,
+      offset
+    );
+
+    res.json({
+      reviews,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (e) {
+    console.error('[mentor.controller] getMentorReviews error:', e);
+    res.status(500).json({ error: 'Failed to fetch reviews' });
+  }
 }
 
 // ─── Mentor Dashboard ───
@@ -298,9 +336,25 @@ async function getEarnings(req, res) {
 async function getMentorStats(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
-    const reviews = await prisma.review.findMany({ where: { mentorId: mentor.id } });
-    res.json({ totalSessions: mentor.totalSessions, rating: mentor.rating, totalReviews: reviews.length });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+    if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
+
+    const [statsRow] = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int as total_reviews FROM "MentorReview" WHERE "mentorId" = $1`,
+      mentor.id
+    );
+    const totalReviews = statsRow?.total_reviews || 0;
+
+    res.json({
+      mentorId: mentor.id,
+      id: mentor.id,
+      totalSessions: mentor.totalSessions,
+      rating: mentor.rating, // rating column holds avg rating on Mentor table
+      totalReviews: totalReviews,
+    });
+  } catch (e) {
+    console.error('[mentor.controller] getMentorStats error:', e);
+    res.status(500).json({ error: 'Failed to fetch mentor stats' });
+  }
 }
 
 async function getMentorNotifs(req, res) {
