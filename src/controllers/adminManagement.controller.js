@@ -38,7 +38,7 @@ async function listAdmins(req, res) {
           email: true,
           role: true,
           status: true,
-          lastLoginAt: true,
+          lastSeen: true,
           createdAt: true
         },
         skip: (pageNum - 1) * limitNum,

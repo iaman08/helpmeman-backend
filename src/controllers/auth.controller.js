@@ -52,7 +52,7 @@ async function register(req, res) {
 // POST /api/auth/verify-signup-otp
 async function verifySignupOTP(req, res) {
   try {
-    const { name, email, password, phone, otp } = req.body;
+    const { name, email, password, phone, otp, role, onboardingRole } = req.body;
 
     if (!email || !otp) {
       return res.status(400).json({ error: 'Email and OTP are required' });
@@ -63,6 +63,8 @@ async function verifySignupOTP(req, res) {
       return res.status(400).json({ error: result.error || 'Invalid or expired OTP' });
     }
 
+    const isMentorSignup = role === 'MENTOR' || onboardingRole === 'MENTOR';
+
     // Create user in Supabase Auth via admin interface (email is verified via OTP)
     const { data, error: createError } = await supabase.auth.admin.createUser({
       email: email.toLowerCase(),
@@ -70,7 +72,7 @@ async function verifySignupOTP(req, res) {
       email_confirm: true,
       user_metadata: {
         name,
-        role: 'STUDENT',
+        role: isMentorSignup ? 'MENTOR' : 'STUDENT',
       },
     });
 
@@ -97,9 +99,9 @@ async function verifySignupOTP(req, res) {
           email: email.toLowerCase(),
           passwordHash: '',
           phone: phone || null,
-          role: 'STUDENT',
+          role: isMentorSignup ? 'MENTOR' : 'STUDENT',
           isEmailVerified: true,
-          onboardingRole: 'MENTEE',
+          onboardingRole: isMentorSignup ? 'MENTOR' : 'MENTEE',
         },
       });
     }
@@ -107,6 +109,67 @@ async function verifySignupOTP(req, res) {
     // Call role synchronization (upgrade-only safety rule)
     const { syncUserRole } = require('../services/roleSync.service');
     user = await syncUserRole(user);
+
+    let mentorResponse = null;
+    if (isMentorSignup) {
+      try {
+        const category = await prisma.category.upsert({
+          where: { slug: 'general-mentorship' },
+          update: {},
+          create: { name: 'General Mentorship', slug: 'general-mentorship', description: 'Cross-functional career and life mentorship' },
+        });
+
+        const mentorRecord = await prisma.mentor.upsert({
+          where: { userId: user.id },
+          update: {},
+          create: {
+            userId: user.id,
+            displayName: user.name,
+            bio: '',
+            institutionType: 'COMPANY',
+            institutionName: 'Independent',
+            institutionEmail: user.email,
+            approvalStatus: 'PENDING',
+            isActive: false,
+            pricePerSession: 0,
+            sessionDuration: 30,
+            categoryId: category.id,
+            expertise: [],
+          },
+        });
+
+        const profile = await prisma.mentorProfile.upsert({
+          where: { mentorId: user.id },
+          update: {},
+          create: {
+            mentorId: user.id,
+            name: user.name,
+            onboardingStatus: 'IN_PROGRESS',
+          },
+        });
+
+        const onboarding = await prisma.mentorOnboarding.upsert({
+          where: { userId: user.id },
+          update: {},
+          create: {
+            userId: user.id,
+            currentQuestion: 0,
+            messages: [],
+            answers: [],
+            completed: false,
+          },
+        });
+
+        mentorResponse = {
+          id: mentorRecord.id,
+          approvalStatus: mentorRecord.approvalStatus,
+          isActive: mentorRecord.isActive,
+          onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
+        };
+      } catch (err) {
+        console.error('Error initializing mentor database tables:', err);
+      }
+    }
 
     try {
       const { getOrCreatePreferences } = require('../services/notification.service');
@@ -135,6 +198,7 @@ async function verifySignupOTP(req, res) {
         currentRole: user.currentRole || null,
         currency: user.currency || null,
       },
+      mentor: mentorResponse,
       accessToken: sessionData.session.access_token,
       refreshToken: sessionData.session.refresh_token,
     });
@@ -341,7 +405,7 @@ async function login(req, res) {
     const mentorData = user.mentor || null;
 
     // Track last login
-    prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+    prisma.user.update({ where: { id: user.id }, data: { lastSeen: new Date() } }).catch(() => {});
 
     console.log(`[AUTH] Login completed successfully for user: ${email}`);
     res.json({
@@ -534,7 +598,7 @@ async function resendOTP(req, res) {
 async function googleLogin(req, res) {
   console.log('[AUTH] STEP 1: Received request at /api/auth/google');
   try {
-    const { accessToken } = req.body;
+    const { accessToken, onboardingRole } = req.body;
     console.log('[AUTH] STEP 2: Received Google/Supabase token:', accessToken ? `${accessToken.substring(0, 15)}...[len=${accessToken.length}]` : 'undefined');
     
     if (!accessToken) {
@@ -550,20 +614,77 @@ async function googleLogin(req, res) {
     let user = await authService.verifySession(accessToken);
     console.log('[AUTH] STEP 4: Google/Supabase user successfully verified and extracted:', user.email);
 
+    if (onboardingRole === 'MENTOR' && user && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'MENTOR', onboardingRole: 'MENTOR' },
+      });
+    }
+
     // Call role synchronization (upgrade-only safety rule)
     const { syncUserRole } = require('../services/roleSync.service');
     user = await syncUserRole(user);
 
-    console.log('[AUTH] STEP 5: Searching/syncing database for user:', user.email);
-    const mentorData = user.mentor || null;
-    console.log('[AUTH] STEP 6: User created/found in DB. ID:', user.id);
+    let mentorResponse = null;
+    if (user.role === 'MENTOR') {
+      const category = await prisma.category.upsert({
+        where: { slug: 'general-mentorship' },
+        update: {},
+        create: { name: 'General Mentorship', slug: 'general-mentorship', description: 'Cross-functional career and life mentorship' },
+      });
+
+      const mentorRecord = await prisma.mentor.upsert({
+        where: { userId: user.id },
+        update: {},
+        create: {
+          userId: user.id,
+          displayName: user.name,
+          bio: '',
+          institutionType: 'COMPANY',
+          institutionName: 'Independent',
+          institutionEmail: user.email,
+          approvalStatus: 'PENDING',
+          isActive: false,
+          pricePerSession: 0,
+          sessionDuration: 30,
+          categoryId: category.id,
+          expertise: [],
+        },
+      });
+
+      const profile = await prisma.mentorProfile.upsert({
+        where: { mentorId: user.id },
+        update: {},
+        create: {
+          mentorId: user.id,
+          name: user.name,
+          onboardingStatus: 'IN_PROGRESS',
+        },
+      });
+
+      const onboarding = await prisma.mentorOnboarding.upsert({
+        where: { userId: user.id },
+        update: {},
+        create: {
+          userId: user.id,
+          currentQuestion: 0,
+          messages: [],
+          answers: [],
+          completed: false,
+        },
+      });
+
+      mentorResponse = {
+        id: mentorRecord.id,
+        approvalStatus: mentorRecord.approvalStatus,
+        isActive: mentorRecord.isActive,
+        onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
+      };
+    }
 
     // Track last login
-    prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+    prisma.user.update({ where: { id: user.id }, data: { lastSeen: new Date() } }).catch(() => {});
 
-    console.log('[AUTH] STEP 7: Google session tokens sync completed. Generating response data...');
-    console.log('[AUTH] STEP 8: Response sent successfully');
-    
     res.json({
       user: {
         id: user.id,
@@ -576,7 +697,7 @@ async function googleLogin(req, res) {
         currentRole: user.currentRole || null,
         currency: user.currency || null,
       },
-      mentor: mentorData,
+      mentor: mentorResponse,
       accessToken,
     });
   } catch (error) {

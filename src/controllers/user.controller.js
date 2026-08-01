@@ -6,7 +6,7 @@ const { saveUserProfile, getUserProfile, isUsernameAvailable, setUsername } = re
 
 async function getProfile(req, res) {
   try {
-    const [user, mentor] = await Promise.all([
+    const [user, mentor, profile, onboarding] = await Promise.all([
       prisma.user.findUnique({
         where: { id: req.user.id },
         select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true, username: true, currentRole: true, currency: true }
@@ -14,6 +14,14 @@ async function getProfile(req, res) {
       prisma.mentor.findUnique({
         where: { userId: req.user.id },
         select: { id: true, approvalStatus: true, isActive: true }
+      }),
+      prisma.mentorProfile.findUnique({
+        where: { mentorId: req.user.id },
+        select: { onboardingStatus: true }
+      }),
+      prisma.mentorOnboarding.findUnique({
+        where: { userId: req.user.id },
+        select: { completed: true }
       }),
     ]);
 
@@ -24,7 +32,12 @@ async function getProfile(req, res) {
       currentRole: user?.currentRole || null,
     };
 
-    res.json({ user: enrichedUser, mentor });
+    const enrichedMentor = mentor ? {
+      ...mentor,
+      onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
+    } : null;
+
+    res.json({ user: enrichedUser, mentor: enrichedMentor });
   } catch (e) { res.status(500).json({ error: 'Failed to get profile' }); }
 }
 
