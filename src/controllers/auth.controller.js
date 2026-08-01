@@ -81,8 +81,6 @@ async function verifySignupOTP(req, res) {
       return res.status(400).json({ error: result.error || 'Invalid or expired OTP' });
     }
 
-    const isMentorSignup = role === 'MENTOR' || onboardingRole === 'MENTOR';
-
     // Create user in Supabase Auth via admin interface (email is verified via OTP)
     const { data, error: createError } = await supabase.auth.admin.createUser({
       email: email.toLowerCase(),
