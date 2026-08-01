@@ -33,7 +33,10 @@ async function register(req, res) {
     }
 
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (existing) return res.status(409).json({ error: 'Email already registered' });
+    if (existing) {
+      const registeredRole = (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
+      return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role (either Mentor or Mentee).` });
+    }
 
     const otp = generateOTP();
     await storeOTP(email.toLowerCase(), otp, 'signup');
@@ -56,6 +59,21 @@ async function verifySignupOTP(req, res) {
 
     if (!email || !otp) {
       return res.status(400).json({ error: 'Email and OTP are required' });
+    }
+
+    const isMentorSignup = role === 'MENTOR' || onboardingRole === 'MENTOR';
+
+    // Prevent cross-role registration with the same email address
+    const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (existingUser) {
+      const existingRole = (existingUser.role === 'MENTOR' || existingUser.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
+      if (isMentorSignup && (existingUser.role === 'STUDENT' || existingUser.onboardingRole === 'MENTEE')) {
+        return res.status(409).json({ error: 'This email is already registered as a Mentee account. An email address can only be registered for one role (either Mentor or Mentee).' });
+      }
+      if (!isMentorSignup && (existingUser.role === 'MENTOR' || existingUser.onboardingRole === 'MENTOR')) {
+        return res.status(409).json({ error: 'This email is already registered as a Mentor account. An email address can only be registered for one role (either Mentor or Mentee).' });
+      }
+      return res.status(409).json({ error: `This email is already registered as a ${existingRole} account.` });
     }
 
     const result = await verifyOTP(email.toLowerCase(), otp, 'signup');
@@ -224,10 +242,13 @@ async function registerMentor(req, res) {
     }
 
     const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: 'Email already registered' });
+    if (existing) {
+      const registeredRole = (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
+      return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role (either Mentor or Mentee).` });
+    }
 
     const existingMentorEmail = await prisma.mentor.findUnique({ where: { institutionEmail } });
-    if (existingMentorEmail) return res.status(409).json({ error: 'Institution email already used' });
+    if (existingMentorEmail) return res.status(409).json({ error: 'Institution email already used by another mentor account.' });
 
     const otp = generateOTP();
     await storeOTP(institutionEmail, otp);
@@ -613,6 +634,27 @@ async function googleLogin(req, res) {
     console.log('[AUTH] STEP 3: Verifying token with Supabase...');
     let user = await authService.verifySession(accessToken);
     console.log('[AUTH] STEP 4: Google/Supabase user successfully verified and extracted:', user.email);
+
+    // Enforce strict 1-email 1-role policy
+    const existingDbUser = await prisma.user.findUnique({ where: { email: user.email.toLowerCase() } });
+    if (existingDbUser) {
+      const isExistingMentor = existingDbUser.role === 'MENTOR' || existingDbUser.onboardingRole === 'MENTOR';
+      const isExistingMentee = existingDbUser.role === 'STUDENT' || existingDbUser.onboardingRole === 'MENTEE';
+
+      if (onboardingRole === 'MENTOR' && isExistingMentee) {
+        return res.status(409).json({
+          error: 'This Google account is already registered as a Mentee. An email address can only be registered for one role (either Mentor or Mentee).',
+          code: 'ROLE_CONFLICT_MENTEE'
+        });
+      }
+
+      if (onboardingRole === 'MENTEE' && isExistingMentor) {
+        return res.status(409).json({
+          error: 'This Google account is already registered as a Mentor. An email address can only be registered for one role (either Mentor or Mentee).',
+          code: 'ROLE_CONFLICT_MENTOR'
+        });
+      }
+    }
 
     if (onboardingRole === 'MENTOR' && user && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
       user = await prisma.user.update({
