@@ -421,7 +421,17 @@ async function login(req, res) {
     const { syncUserRole } = require('../services/roleSync.service');
     user = await syncUserRole(user);
 
-    const mentorData = user.mentor || null;
+    let mentorData = null;
+    if (user.mentor) {
+      const [onboarding, profile] = await Promise.all([
+        prisma.mentorOnboarding.findUnique({ where: { userId: user.id }, select: { completed: true } }),
+        prisma.mentorProfile.findUnique({ where: { mentorId: user.id }, select: { onboardingStatus: true } }),
+      ]);
+      mentorData = {
+        ...user.mentor,
+        onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
+      };
+    }
 
     // Track last login
     prisma.user.update({ where: { id: user.id }, data: { lastSeen: new Date() } }).catch(() => {});
