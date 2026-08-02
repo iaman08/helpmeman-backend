@@ -173,7 +173,9 @@ Recent context:
 ${context || '(none)'}
 
 Write a natural response of at most 35 words. Briefly acknowledge one specific detail, then ask this exact next question naturally: "${nextQuestion.text}". No headings, no generic praise.`;
-    const result = await client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.65, max_tokens: 90 });
+    const groqCall = client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.65, max_tokens: 90 });
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Groq API request timed out')), 3500));
+    const result = await Promise.race([groqCall, timeout]);
     return result.choices[0]?.message?.content?.trim() || `Got it. ${nextQuestion.text}`;
   } catch (error) {
     console.warn('[Onboarding] Ruth transition fallback:', error.message);
@@ -212,7 +214,9 @@ async function summarize(userId) {
     try {
       const client = new Groq({ apiKey: config.groq.apiKey });
       const prompt = `Create a mentor profile from these onboarding answers. Return valid JSON only with keys: name, preferredName, role, company, location, skills (array), experienceYears (integer or null), bio (80-120 words), mentoringStyle (object), goals (string), summary (string), expertiseTags (max 8 array), personality (object with communication_style, mentoring_style, experience_level, preferred_mentees).\n\n${transcript}`;
-      const completion = await client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.25, max_tokens: 800, response_format: { type: 'json_object' } });
+      const groqCall = client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.25, max_tokens: 800, response_format: { type: 'json_object' } });
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Groq API summarize timed out')), 4000));
+      const completion = await Promise.race([groqCall, timeout]);
       result = JSON.parse(completion.choices[0]?.message?.content || '{}');
     } catch (error) {
       console.warn('[Onboarding] Profile synthesis fallback:', error.message);
