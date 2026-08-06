@@ -32,23 +32,30 @@ async function register(req, res) {
       return res.status(400).json({ error: 'Password must be at least 8 characters with uppercase, lowercase, and a number' });
     }
 
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
       const registeredRole = (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
       return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role (either Mentor or Mentee).` });
     }
 
     const otp = generateOTP();
-    await storeOTP(email.toLowerCase(), otp, 'signup');
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`\n🔑 [DEV] OTP for ${email.toLowerCase()}: ${otp}\n`);
-    }
-    await sendOtpEmail({ email: email.toLowerCase(), name, otp, purpose: 'signup' });
+    await storeOTP(normalizedEmail, otp, 'signup');
+    await storeOTP(normalizedEmail, otp, 'verify');
 
-    res.json({ message: 'Verification OTP sent to your email', email: email.toLowerCase(), requiresOTP: true });
+    console.log(`\n🔑 [OTP] Signup code for ${normalizedEmail}: ${otp}\n`);
+
+    const emailResult = await sendOtpEmail({ email: normalizedEmail, name, otp, purpose: 'signup' });
+    if (!emailResult.success && process.env.NODE_ENV === 'production') {
+      console.error(`[AUTH] Failed to send OTP email to ${normalizedEmail}: ${emailResult.error}`);
+      return res.status(500).json({ error: 'Failed to deliver OTP email. Please check your email address and try again.' });
+    }
+
+    res.json({ message: 'Verification OTP sent to your email', email: normalizedEmail, requiresOTP: true });
   } catch (error) {
     console.error('Register error:', error);
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ error: error.message || 'Registration failed' });
   }
 }
 
@@ -229,36 +236,55 @@ async function registerMentor(req, res) {
   try {
     const { name, email, password, phone, displayName, bio, institutionType, institutionName, institutionEmail, department, graduationYear, currentRole, company, linkedinUrl, expertise, categoryId, pricePerSession, sessionDuration } = req.body;
 
-    if (institutionType === 'COLLEGE' && !isValidCollegeEmail(institutionEmail)) {
+    const normalizedEmail = (email || '').toLowerCase().trim();
+    const normalizedInstEmail = (institutionEmail || email || '').toLowerCase().trim();
+
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    if (institutionType === 'COLLEGE' && !isValidCollegeEmail(normalizedInstEmail)) {
       return res.status(400).json({ error: 'Invalid college email domain' });
     }
-    if (institutionType === 'COMPANY' && !isValidCompanyEmail(institutionEmail, company)) {
+    if (institutionType === 'COMPANY' && !isValidCompanyEmail(normalizedInstEmail, company)) {
       return res.status(400).json({ error: 'Invalid company email domain' });
     }
-    if (institutionType === 'STARTUP' && !isValidStartupEmail(institutionEmail)) {
+    if (institutionType === 'STARTUP' && !isValidStartupEmail(normalizedInstEmail)) {
       return res.status(400).json({ error: 'Invalid startup email' });
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
       const registeredRole = (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
       return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role (either Mentor or Mentee).` });
     }
 
-    const existingMentorEmail = await prisma.mentor.findUnique({ where: { institutionEmail } });
-    if (existingMentorEmail) return res.status(409).json({ error: 'Institution email already used by another mentor account.' });
+    if (institutionEmail) {
+      const existingMentorEmail = await prisma.mentor.findUnique({ where: { institutionEmail: normalizedInstEmail } });
+      if (existingMentorEmail) return res.status(409).json({ error: 'Institution email already used by another mentor account.' });
+    }
 
     const otp = generateOTP();
-    await storeOTP(institutionEmail, otp);
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`\n🔑 [DEV] OTP for ${institutionEmail}: ${otp}\n`);
+    await storeOTP(normalizedInstEmail, otp, 'signup');
+    await storeOTP(normalizedInstEmail, otp, 'verify');
+    if (normalizedEmail !== normalizedInstEmail) {
+      await storeOTP(normalizedEmail, otp, 'signup');
+      await storeOTP(normalizedEmail, otp, 'verify');
     }
-    await sendOtpEmail({ email: institutionEmail, otp, purpose: 'verify' });
 
-    res.json({ message: 'OTP sent to institution email', institutionEmail, requiresOTP: true });
+    console.log(`\n🔑 [OTP] Mentor signup code for ${normalizedInstEmail} / ${normalizedEmail}: ${otp}\n`);
+
+    const recipientEmail = normalizedInstEmail || normalizedEmail;
+    const emailResult = await sendOtpEmail({ email: recipientEmail, name, otp, purpose: 'signup' });
+    if (!emailResult.success && process.env.NODE_ENV === 'production') {
+      console.error(`[AUTH] Failed to send OTP email to ${recipientEmail}: ${emailResult.error}`);
+      return res.status(500).json({ error: 'Failed to send verification OTP email. Please check your email address.' });
+    }
+
+    res.json({ message: 'OTP sent to verification email', email: recipientEmail, requiresOTP: true });
   } catch (error) {
     console.error('Mentor register error:', error);
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ error: error.message || 'Registration failed' });
   }
 }
 
@@ -267,14 +293,23 @@ async function verifyMentorOTP(req, res) {
   try {
     const { name, email, password, phone, displayName, bio, institutionType, institutionName, institutionEmail, department, graduationYear, currentRole, company, linkedinUrl, expertise, categoryId, pricePerSession, sessionDuration, otp } = req.body;
 
-    const result = await verifyOTP(institutionEmail, otp);
+    const normalizedEmail = (email || '').toLowerCase().trim();
+    const normalizedInstEmail = (institutionEmail || email || '').toLowerCase().trim();
+
+    let result = await verifyOTP(normalizedInstEmail, otp, 'signup');
+    if (!result.valid) {
+      result = await verifyOTP(normalizedInstEmail, otp, 'verify');
+    }
+    if (!result.valid && normalizedEmail !== normalizedInstEmail) {
+      result = await verifyOTP(normalizedEmail, otp, 'signup');
+    }
     if (!result.valid) {
       return res.status(400).json({ error: result.error || 'Invalid or expired OTP' });
     }
 
     // Create user in Supabase Auth via admin interface (email is verified via institutional OTP already)
     const { data: { user: supabaseUser }, error: createError } = await supabase.auth.admin.createUser({
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       password,
       email_confirm: true,
       user_metadata: {
@@ -289,7 +324,7 @@ async function verifyMentorOTP(req, res) {
 
     // Now log in to retrieve a session/tokens
     const { data: sessionData, error: loginError } = await supabase.auth.signInWithPassword({
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       password,
     });
 
@@ -298,7 +333,7 @@ async function verifyMentorOTP(req, res) {
     }
 
     let user = await prisma.user.create({
-      data: { id: supabaseUser.id, name, email: email.toLowerCase(), passwordHash: '', phone, role: 'MENTOR', isEmailVerified: true },
+      data: { id: supabaseUser.id, name, email: normalizedEmail, passwordHash: '', phone, role: 'MENTOR', isEmailVerified: true },
     });
 
     // Call role synchronization (upgrade-only safety rule)
@@ -308,7 +343,7 @@ async function verifyMentorOTP(req, res) {
     const mentor = await prisma.mentor.create({
       data: {
         userId: user.id, displayName, bio, institutionType, institutionName,
-        institutionEmail, department, graduationYear, currentRole, company,
+        institutionEmail: normalizedInstEmail, department, graduationYear, currentRole, company,
         linkedinUrl, expertise: expertise || [], categoryId,
         pricePerSession: pricePerSession || 50000, sessionDuration: sessionDuration || 30,
         approvalStatus: 'PENDING', isActive: false,
@@ -604,19 +639,25 @@ async function resendOTP(req, res) {
       return res.status(400).json({ error: 'Email and purpose are required' });
     }
 
-    if (purpose === 'signup') {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    if (purpose === 'signup' || purpose === 'verify') {
       const otp = generateOTP();
-      await storeOTP(email.toLowerCase(), otp, 'signup');
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`\n🔑 [DEV] OTP for ${email.toLowerCase()}: ${otp}\n`);
+      await storeOTP(normalizedEmail, otp, 'signup');
+      await storeOTP(normalizedEmail, otp, 'verify');
+      console.log(`\n🔑 [OTP] Resending code for ${normalizedEmail}: ${otp}\n`);
+
+      const emailResult = await sendOtpEmail({ email: normalizedEmail, otp, purpose: 'signup' });
+      if (!emailResult.success && process.env.NODE_ENV === 'production') {
+        console.error(`[AUTH] Failed to deliver resent OTP to ${normalizedEmail}: ${emailResult.error}`);
+        return res.status(500).json({ error: 'Failed to deliver OTP email. Please verify your email address.' });
       }
-      await sendOtpEmail({ email: email.toLowerCase(), otp, purpose: 'signup' });
     } else if (purpose === 'reset') {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase());
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail);
       if (error) return res.status(400).json({ error: 'Failed to resend OTP. Please try again.' });
     }
 
-    res.json({ message: 'OTP resent', cooldown: 60 });
+    res.json({ message: 'OTP resent successfully', cooldown: 60 });
   } catch (error) {
     console.error('Resend OTP error:', error);
     res.status(500).json({ error: 'Failed to resend OTP' });

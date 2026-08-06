@@ -40,7 +40,7 @@ const gmailTransporter =
         service: 'gmail',
         auth: {
           user: config.gmail.user,
-          pass: config.gmail.appPassword,
+          pass: config.gmail.appPassword.replace(/\s+/g, ''),
         },
       })
     : null;
@@ -100,7 +100,9 @@ function sendResendEmail({ to, subject, html, from }) {
             resolve({ id: 'resend_ok' });
           }
         } else {
-          reject(new Error(`Resend API returned status ${res.statusCode}: ${body}`));
+          const err = new Error(`Resend API returned status ${res.statusCode}: ${body}`);
+          err.statusCode = res.statusCode;
+          reject(err);
         }
       });
     });
@@ -116,7 +118,7 @@ async function sendResendEmailWithRetry(params, retries = 2, delay = 500) {
   try {
     return await sendResendEmail(params);
   } catch (error) {
-    if (retries <= 0) throw error;
+    if (error.statusCode === 401 || error.statusCode === 403 || retries <= 0) throw error;
     await new Promise((resolve) => setTimeout(resolve, delay));
     return sendResendEmailWithRetry(params, retries - 1, delay * 2);
   }
