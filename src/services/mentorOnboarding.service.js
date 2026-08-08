@@ -24,8 +24,15 @@ const QUESTIONS = [
     key: 'role_company',
     phase: 'Identity',
     type: 'text',
-    text: "What's your current role, and where do you work?",
-    placeholder: 'Example: Senior Product Manager at Razorpay',
+    text: "What's your current role or degree program, and where do you work or study?",
+    placeholder: 'Example: 3rd year B.Tech CSE at IIT Delhi / Senior PM at Razorpay',
+  },
+  {
+    key: 'academic_background',
+    phase: 'Background',
+    type: 'text',
+    text: "Could you share your background details? (e.g. degree/branch, year of study, whether you took a dropper/gap year, entrance rank, or your preparation procedure)",
+    placeholder: 'Example: B.Tech CSE (3rd Yr), took 1-year drop for JEE Adv Rank 1420',
   },
   {
     key: 'location',
@@ -38,22 +45,22 @@ const QUESTIONS = [
     key: 'skills',
     phase: 'Expertise',
     type: 'multi_choice',
-    text: 'Pick the skills you feel strongest in.',
-    options: ['Product strategy', 'Software engineering', 'AI/ML', 'Growth', 'Fundraising', 'Leadership', 'Design', 'Career growth', 'Sales', 'Operations'],
+    text: 'Pick the areas you feel strongest mentoring in.',
+    options: ['JEE Prep', 'NEET Prep', 'Software Engineering', 'DSA & Coding', 'Product Strategy', 'Career Guidance', 'AI/ML', 'College Admissions', 'Dropper Strategy', 'Leadership'],
   },
   {
     key: 'experience',
     phase: 'Expertise',
     type: 'single_choice',
-    text: 'How many years of experience do you have?',
-    options: ['1-3 years', '4-6 years', '7-10 years', '10+ years', '15+ years'],
+    text: 'How many years of experience or study do you have in this field?',
+    options: ['1-2 years', '3-5 years', '6-8 years', '8+ years'],
   },
   {
     key: 'preferred_mentees',
     phase: 'Mentoring style',
     type: 'single_choice',
     text: 'What type of mentees do you enjoy working with most?',
-    options: ['Early-career professionals', 'Founders', 'Students', 'Career switchers', 'Senior leaders', 'Builders with an idea'],
+    options: ['Engineering Aspirants / JEE Mentees', 'Medical Aspirants / NEET', 'Early-career professionals', 'College Students', 'Career Switchers', 'Droppers / Gap Year Aspirants'],
   },
 ];
 
@@ -165,15 +172,18 @@ async function humanTransition(question, answer, nextQuestion, priorAnswers) {
   try {
     const client = new Groq({ apiKey: config.groq.apiKey });
     const context = priorAnswers.slice(-4).map(a => `${a.question}: ${a.answer}`).join('\n');
-    const prompt = `You are Ruth, a warm, perceptive onboarding assistant for mentors. A mentor just answered:
+    const prompt = `You are Ruth, a warm, perceptive AI onboarding assistant for mentors on HelpMeMan. A mentor just answered:
 Question: ${question.text}
 Answer: ${answer}
 
 Recent context:
 ${context || '(none)'}
 
-Write a natural response of at most 35 words. Briefly acknowledge one specific detail, then ask this exact next question naturally: "${nextQuestion.text}". No headings, no generic praise.`;
-    const groqCall = client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.65, max_tokens: 90 });
+SPECIAL INSTRUCTION FOR ACADEMIC & CAREER BACKGROUND:
+If the mentor mentions B.Tech, college, a degree program, dropping a year, JEE/NEET exams, or studying, acknowledge their background warmly and ensure you probe key details (such as whether they took a dropper/gap year, their preparation procedure/strategy, branch, or rank) so Ruth AI can match them effectively with the right mentees.
+
+Write a natural response of at most 35 words. Briefly acknowledge one specific detail from their answer, then smoothly ask this exact next question: "${nextQuestion.text}". No headings, no generic boilerplate.`;
+    const groqCall = client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.65, max_tokens: 100 });
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Groq API request timed out')), 3500));
     const result = await Promise.race([groqCall, timeout]);
     return result.choices[0]?.message?.content?.trim() || `Got it. ${nextQuestion.text}`;
