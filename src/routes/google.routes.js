@@ -24,7 +24,7 @@ const {
 
 // ── GET /api/google/oauth/url ─────────────────────────────────────────────────
 // Returns the Google OAuth authorization URL for the requesting mentor.
-router.get('/oauth/url', authenticate, roleGuard('SUPER_ADMIN', 'MENTOR'), async (req, res) => {
+router.get('/oauth/url', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'), async (req, res) => {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
     if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
@@ -39,7 +39,7 @@ router.get('/oauth/url', authenticate, roleGuard('SUPER_ADMIN', 'MENTOR'), async
 
 // ── GET /api/google/oauth/status ──────────────────────────────────────────────
 // Returns whether the requesting mentor has connected Google Calendar.
-router.get('/oauth/status', authenticate, roleGuard('SUPER_ADMIN', 'MENTOR'), async (req, res) => {
+router.get('/oauth/status', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'), async (req, res) => {
   try {
     const mentor = await prisma.mentor.findUnique({
       where: { userId: req.user.id },
@@ -96,7 +96,7 @@ router.get('/oauth/callback', async (req, res) => {
 
 // ── DELETE /api/google/oauth/disconnect ──────────────────────────────────────
 // Revokes the mentor's Google Calendar connection.
-router.delete('/oauth/disconnect', authenticate, roleGuard('SUPER_ADMIN', 'MENTOR'), async (req, res) => {
+router.delete('/oauth/disconnect', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'), async (req, res) => {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
     if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
@@ -111,7 +111,7 @@ router.delete('/oauth/disconnect', authenticate, roleGuard('SUPER_ADMIN', 'MENTO
 
 // ── PUT /api/google/calendar/timezone ─────────────────────────────────────────
 // Let mentor update their calendar timezone preference.
-router.put('/calendar/timezone', authenticate, roleGuard('SUPER_ADMIN', 'MENTOR'), async (req, res) => {
+router.put('/calendar/timezone', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'), async (req, res) => {
   try {
     const { timezone } = req.body;
     if (!timezone || typeof timezone !== 'string') {

@@ -10,10 +10,12 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { authenticate } = require('../middleware/auth');
 const { roleGuard } = require('../middleware/rbac');
+const { mustChangePassword } = require('../middleware/mustChangePassword');
 const superAdmin = require('../controllers/superAdmin.controller');
 
-// ── Middleware: authenticate + SUPER_ADMIN only ──────────────────────────────
+// ── Middleware: authenticate + force-password-check + SUPER_ADMIN only ───────
 router.use(authenticate);
+router.use(mustChangePassword);
 router.use(roleGuard('SUPER_ADMIN'));
 
 // ── Rate limiter for role change endpoint (5 req/min) ────────────────────────

@@ -174,7 +174,24 @@ async function getOwnProfile(req, res) {
         }
       }
     });
-    if (!mentorRaw) return res.status(404).json({ error: 'Mentor profile not found' });
+    if (!mentorRaw) {
+      if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN' || req.user.email?.toLowerCase().endsWith('@helpmeman.com')) {
+        return res.json({
+          mentor: {
+            id: 'admin-preview',
+            userId: req.user.id,
+            displayName: req.user.name,
+            bio: 'Administrator account previewing Mentor Dashboard',
+            approvalStatus: 'APPROVED',
+            rating: 5.0,
+            totalSessions: 0,
+            pricePerSession: 0,
+            user: { avatar: req.user.avatar, presenceStatus: 'ONLINE', lastSeen: new Date() }
+          }
+        });
+      }
+      return res.status(404).json({ error: 'Mentor profile not found' });
+    }
     const mentor = enrichPresence(mentorRaw);
     res.json({ mentor });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
@@ -279,6 +296,7 @@ async function uploadDoc(req, res) {
 async function getAvailability(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    if (!mentor) return res.json({ availabilities: [] });
     const avail = await prisma.availability.findMany({ where: { mentorId: mentor.id }, orderBy: { dayOfWeek: 'asc' } });
     res.json({ availabilities: avail });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
@@ -288,6 +306,7 @@ async function setAvailability(req, res) {
   try {
     const { slots } = req.body; // [{ dayOfWeek, startTime, endTime }]
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    if (!mentor) return res.status(404).json({ error: 'Mentor profile required' });
     await prisma.availability.deleteMany({ where: { mentorId: mentor.id } });
     const created = await Promise.all(slots.map(s => prisma.availability.create({ data: { mentorId: mentor.id, ...s } })));
     res.json({ availabilities: created });
@@ -297,6 +316,7 @@ async function setAvailability(req, res) {
 async function getMentorBookings(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    if (!mentor) return res.json({ bookings: [], total: 0, page: 1, totalPages: 1 });
     const { filter = 'upcoming', page = 1, limit = 10 } = req.query;
     const where = { mentorId: mentor.id };
     if (filter === 'upcoming') { where.scheduledAt = { gte: new Date() }; where.status = { in: ['CONFIRMED', 'PENDING'] }; }
@@ -326,6 +346,7 @@ async function addBookingNotes(req, res) {
 async function getEarnings(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    if (!mentor) return res.json({ earnings: [], totalEarned: 0, pendingPayout: 0 });
     const earnings = await prisma.earning.findMany({ where: { mentorId: mentor.id }, orderBy: { createdAt: 'desc' } });
     const total = earnings.reduce((sum, e) => sum + e.amount, 0);
     const pending = earnings.filter(e => e.status === 'PENDING').reduce((sum, e) => sum + e.amount, 0);
@@ -336,7 +357,18 @@ async function getEarnings(req, res) {
 async function getMentorStats(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
-    if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
+    if (!mentor) {
+      if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN' || req.user.email?.toLowerCase().endsWith('@helpmeman.com')) {
+        return res.json({
+          mentorId: 'admin-preview',
+          id: 'admin-preview',
+          totalSessions: 0,
+          rating: 5.0,
+          totalReviews: 0,
+        });
+      }
+      return res.status(404).json({ error: 'Mentor not found' });
+    }
 
     const [statsRow] = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int as total_reviews FROM "MentorReview" WHERE "mentorId" = $1`,
@@ -348,7 +380,7 @@ async function getMentorStats(req, res) {
       mentorId: mentor.id,
       id: mentor.id,
       totalSessions: mentor.totalSessions,
-      rating: mentor.rating, // rating column holds avg rating on Mentor table
+      rating: mentor.rating,
       totalReviews: totalReviews,
     });
   } catch (e) {

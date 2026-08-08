@@ -75,7 +75,13 @@ function roleGuard(...allowedRoles) {
       return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' });
     }
 
-    if (!roles.includes(req.user.role)) {
+    const userRole = req.user.role;
+    const isAllowed =
+      roles.includes(userRole) ||
+      userRole === 'SUPER_ADMIN' ||
+      (userRole === 'ADMIN' && (roles.includes('MENTOR') || roles.includes('STUDENT')));
+
+    if (!isAllowed) {
       return res.status(403).json({ error: 'Insufficient permissions', code: 'FORBIDDEN' });
     }
 

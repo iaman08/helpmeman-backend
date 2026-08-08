@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authLimiter, otpLimiter } = require('../middleware/rateLimiter');
+const { authenticate } = require('../middleware/auth');
 const auth = require('../controllers/auth.controller');
 
 router.post('/register', authLimiter, auth.register);
@@ -17,6 +18,7 @@ router.post('/verify-reset-otp', otpLimiter, auth.verifyResetOTP);
 router.post('/reset-password', authLimiter, auth.resetPassword);
 router.post('/resend-otp', otpLimiter, auth.resendOTP);
 
-
+// Protected: must be authenticated. Allows first-login admins to set a permanent password.
+router.post('/change-password', authenticate, auth.changePassword);
 
 module.exports = router;

@@ -829,5 +829,93 @@ async function googleLogin(req, res) {
   }
 }
 
-module.exports = { register, verifySignupOTP, registerMentor, verifyMentorOTP, verifyEmail, login, googleLogin, refresh, logout, forgotPassword, verifyResetOTP, resetPassword, resendOTP };
+// POST /api/auth/change-password  (requires authentication)
+// Used by provisioned admin accounts to replace their temporary password on first login.
+async function changePassword(req, res) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' });
+    }
+
+    const { newPassword } = req.body;
+    if (!newPassword) {
+      return res.status(400).json({ error: 'newPassword is required' });
+    }
+    if (!isPasswordStrong(newPassword)) {
+      return res.status(400).json({
+        error: 'Password must be at least 8 characters with at least one uppercase letter, one lowercase letter, and one number.',
+      });
+    }
+
+    // Update password in Supabase Auth via Admin API
+    // NOTE: this invalidates the user's current session token.
+    const { error: supabaseError } = await supabase.auth.admin.updateUserById(req.user.id, {
+      password: newPassword,
+    });
+
+    if (supabaseError) {
+      console.error('[CHANGE_PASSWORD] Supabase update failed:', supabaseError.message);
+      return res.status(500).json({ error: 'Failed to update password. Please try again.' });
+    }
+
+    // Clear the force-change flag in local DB
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { mustChangePassword: false },
+      select: {
+        id: true, name: true, email: true, phone: true, avatar: true,
+        role: true, onboardingRole: true, isEmailVerified: true,
+        createdAt: true, username: true, currentRole: true,
+        currency: true, mustChangePassword: true,
+      },
+    });
+
+    // Invalidate old cached token — it's now dead after the admin password update
+    const { invalidateCachedUser } = require('../services/auth.service');
+    invalidateCachedUser(req.user.id);
+
+    // Re-sign-in the user with their new password to get a fresh, valid session.
+    // This avoids the frontend having to redirect to /signin after a password change.
+    const { data: newSession, error: signInError } = await supabase.auth.signInWithPassword({
+      email: req.user.email,
+      password: newPassword,
+    });
+
+    if (signInError || !newSession?.session) {
+      // Password was changed but auto-relogin failed — tell the frontend to re-login manually
+      console.warn('[CHANGE_PASSWORD] Auto-relogin failed, user must sign in again:', signInError?.message);
+      return res.json({
+        message: 'Password changed. Please sign in again with your new password.',
+        requiresRelogin: true,
+      });
+    }
+
+    // Audit log
+    const { logAuditEvent, getClientIp } = require('../services/auditLog.service');
+    await logAuditEvent({
+      action: 'ADMIN_PASSWORD_CHANGED',
+      actorId: req.user.id,
+      targetId: req.user.id,
+      oldValue: 'TEMP_PASSWORD',
+      newValue: 'USER_SET_PASSWORD',
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      metadata: { email: req.user.email },
+    });
+
+    console.log(`[CHANGE_PASSWORD] Password changed and re-login issued for ${req.user.email}`);
+    return res.json({
+      message: 'Password changed successfully.',
+      accessToken: newSession.session.access_token,
+      refreshToken: newSession.session.refresh_token,
+      user: updatedUser,
+    });
+  } catch (err) {
+    console.error('[CHANGE_PASSWORD] Unexpected error:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+
+module.exports = { register, verifySignupOTP, registerMentor, verifyMentorOTP, verifyEmail, login, googleLogin, refresh, logout, forgotPassword, verifyResetOTP, resetPassword, resendOTP, changePassword };
 

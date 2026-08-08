@@ -8,7 +8,7 @@ const mentor = require('../controllers/mentor.controller');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.use(authenticate);
-router.use(roleGuard('SUPER_ADMIN', 'MENTOR'));
+router.use(roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'));
 
 router.get('/me', mentor.getOwnProfile);
 router.put('/me', mentor.updateOwnProfile);

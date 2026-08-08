@@ -43,6 +43,7 @@ model User {
   presenceStatus  String?        @default("OFFLINE")
   currency        String?
   status          String         @default("ACTIVE") // ACTIVE, DISABLED, DELETED
+  mustChangePassword Boolean      @default(false)   // Force password change on first login
   platformReviewSubmitted  Boolean          @default(false)
   lastReviewPromptAt       DateTime?
   reviewPromptDismissCount Int              @default(0)
