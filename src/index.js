@@ -322,14 +322,20 @@ server.listen(PORT, async () => {
   }
 
   // Initialize job queue (skipped in development to avoid Upstash limit-reached console floods)
+  const { checkIntakeReminders } = require('./jobs/sessionReminder.job');
   if (config.nodeEnv === 'production') {
     try { initReminderQueue(config.redis.url); } catch (e) { console.warn('Redis queue init skipped'); }
     try { initNotificationQueue(config.redis.url); } catch (e) { console.warn('Notification queue init skipped'); }
     setInterval(() => {
       retryFailedEmails(20).catch((err) => console.warn('Email retry job failed:', err.message));
+      checkIntakeReminders().catch((err) => console.warn('Intake reminder check failed:', err.message));
     }, 15 * 60 * 1000);
   } else {
     console.log('Skipping Redis reminder queue in development');
+    // Run lightweight intake reminder check in development
+    setInterval(() => {
+      checkIntakeReminders().catch((err) => console.warn('Intake reminder check failed:', err.message));
+    }, 15 * 60 * 1000);
   }
 
   // Seed demo team members if none exist
