@@ -196,7 +196,7 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
   if (gmailTransporter) {
     console.log(`[EMAIL] 🔑 Trying Gmail SMTP...`);
     try {
-      const gmailFrom = config.gmail?.user || 'noreply@gmail.com';
+      const gmailFrom = config.gmail?.user || config.smtp?.fromEmail || 'admin.helpmeman@gmail.com';
       const info = await gmailTransporter.sendMail({
         from: `"HelpMeMan" <${gmailFrom}>`,
         to,

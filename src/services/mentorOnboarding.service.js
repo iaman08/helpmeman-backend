@@ -46,7 +46,23 @@ const QUESTIONS = [
     phase: 'Expertise',
     type: 'multi_choice',
     text: 'Pick the areas you feel strongest mentoring in.',
-    options: ['JEE Prep', 'NEET Prep', 'Software Engineering', 'DSA & Coding', 'Product Strategy', 'Career Guidance', 'AI/ML', 'College Admissions', 'Dropper Strategy', 'Leadership'],
+    options: [
+      'NEET UG Strategy',
+      'AIIMS & Medical Prep',
+      'Diet & Clinical Nutrition',
+      'Health & Lifestyle Guidance',
+      'CLAT & Law Entrance',
+      'Corporate Law & Litigation',
+      'JEE Prep',
+      'Software Engineering',
+      'DSA & Coding',
+      'Product Strategy',
+      'Career Guidance',
+      'AI/ML',
+      'College Admissions',
+      'Dropper / Gap Year Strategy',
+      'Leadership',
+    ],
   },
   {
     key: 'experience',
@@ -60,7 +76,16 @@ const QUESTIONS = [
     phase: 'Mentoring style',
     type: 'single_choice',
     text: 'What type of mentees do you enjoy working with most?',
-    options: ['Engineering Aspirants / JEE Mentees', 'Medical Aspirants / NEET', 'Early-career professionals', 'College Students', 'Career Switchers', 'Droppers / Gap Year Aspirants'],
+    options: [
+      'Medical Aspirants / NEET',
+      'Diet & Health Guidance Seekers',
+      'Law & CLAT Aspirants',
+      'Engineering Aspirants / JEE Mentees',
+      'Early-career professionals',
+      'College Students',
+      'Career Switchers',
+      'Droppers / Gap Year Aspirants',
+    ],
   },
 ];
 
@@ -193,6 +218,29 @@ Write a natural response of at most 35 words. Briefly acknowledge one specific d
   }
 }
 
+function detectCategorySlug(text = '') {
+  const lower = text.toLowerCase();
+  if (lower.includes('law') || lower.includes('clat') || lower.includes('legal') || lower.includes('advocate') || lower.includes('nlu') || lower.includes('court') || lower.includes('litigation')) {
+    return 'law';
+  }
+  if (lower.includes('diet') || lower.includes('nutrition') || lower.includes('health') || lower.includes('wellness') || lower.includes('doctor') || lower.includes('clinical') || lower.includes('lifestyle')) {
+    return 'health-nutrition';
+  }
+  if (lower.includes('neet') || lower.includes('mbbs') || lower.includes('aiims') || lower.includes('medical') || lower.includes('mamc') || lower.includes('jipmer') || lower.includes('kgmu')) {
+    return 'medical-neet';
+  }
+  if (lower.includes('jee') || lower.includes('iit') || lower.includes('nit') || lower.includes('engineering prep')) {
+    return 'jee-neet-prep';
+  }
+  if (lower.includes('faang') || lower.includes('software') || lower.includes('coding') || lower.includes('dsa') || lower.includes('developer') || lower.includes('b.tech') || lower.includes('tech')) {
+    return 'faang';
+  }
+  if (lower.includes('startup') || lower.includes('founder') || lower.includes('y combinator')) {
+    return 'startup';
+  }
+  return 'general-mentorship';
+}
+
 async function summarize(userId) {
   const onboarding = await prisma.mentorOnboarding.findUnique({ where: { userId } });
   const answers = (onboarding?.answers || []).filter(a => !a.skipped);
@@ -237,11 +285,15 @@ async function summarize(userId) {
   }
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  const category = await prisma.category.upsert({
-    where: { slug: 'general-mentorship' },
-    update: {},
-    create: { name: 'General Mentorship', slug: 'general-mentorship', description: 'Cross-functional career and life mentorship' },
-  });
+  const detectedSlug = detectCategorySlug(`${transcript} ${result.role || ''} ${result.company || ''} ${(result.skills || []).join(' ')}`);
+  let category = await prisma.category.findUnique({ where: { slug: detectedSlug } });
+  if (!category) {
+    category = await prisma.category.upsert({
+      where: { slug: 'general-mentorship' },
+      update: {},
+      create: { name: 'General Mentorship', slug: 'general-mentorship', description: 'Cross-functional career and life mentorship' },
+    });
+  }
 
     // Parse location
     let country = 'India';
