@@ -204,8 +204,11 @@ Answer: ${answer}
 Recent context:
 ${context || '(none)'}
 
-SPECIAL INSTRUCTION FOR ACADEMIC & CAREER BACKGROUND:
-If the mentor mentions B.Tech, college, a degree program, dropping a year, JEE/NEET exams, or studying, acknowledge their background warmly and ensure you probe key details (such as whether they took a dropper/gap year, their preparation procedure/strategy, branch, or rank) so Ruth AI can match them effectively with the right mentees.
+SPECIAL INSTRUCTION FOR MULTI-DOMAIN ACADEMIC & PROFESSIONAL BACKGROUNDS:
+- **Lawyers / Legal**: If the mentor mentions Law, CLAT, Bar Council enrollment, NLU, Advocate, or Court practice, acknowledge their legal credentials warmly and probe key details (e.g. Bar enrollment, Court practice, corporate law, or CLAT strategy).
+- **Doctors / Medical Students**: If the mentor mentions MBBS, NEET rank, AIIMS/MAMC, Medical Council / NMC registration, or medical specialization, acknowledge their medical journey and probe key details (e.g. NEET AIR rank, medical college, or dropper strategy).
+- **Nutritionists / Health Counselors**: If the mentor mentions Diet, Clinical Nutrition, Doctor / MBBS health guide, or wellness practice, acknowledge their clinical background and probe key diet/health specialization areas.
+- **Tech / Engineering**: If the mentor mentions B.Tech, IIT/NIT, FAANG, SDE, or JEE, acknowledge their engineering background and probe key details (e.g. JEE rank, dropper year, or tech stack).
 
 Write a natural response of at most 35 words. Briefly acknowledge one specific detail from their answer, then smoothly ask this exact next question: "${nextQuestion.text}". No headings, no generic boilerplate.`;
     const groqCall = client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.65, max_tokens: 100 });
@@ -271,7 +274,10 @@ async function summarize(userId) {
   if (config.groq.apiKey) {
     try {
       const client = new Groq({ apiKey: config.groq.apiKey });
-      const prompt = `Create a mentor profile from these onboarding answers. Return valid JSON only with keys: name, preferredName, role, company, location, skills (array), experienceYears (integer or null), bio (80-120 words), mentoringStyle (object), goals (string), summary (string), expertiseTags (max 8 array), personality (object with communication_style, mentoring_style, experience_level, preferred_mentees).\n\n${transcript}`;
+      const prompt = `Create a professional multi-domain mentor profile from these onboarding answers. Extract domain specializations (e.g. NEET UG Strategy, Clinical Nutrition, Bar Council / Court Litigation, FAANG Tech) and any professional credentials/licenses mentioned (e.g. Bar Council ID, Medical Registration No., AIIMS Rank).
+
+Return valid JSON only with keys:
+name, preferredName, role, company, location, skills (array), experienceYears (integer or null), bio (80-120 words), mentoringStyle (object), goals (string), summary (string), expertiseTags (max 8 array), personality (object with communication_style, mentoring_style, experience_level, preferred_mentees, domain_credentials).\n\n${transcript}`;
       const groqCall = client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.25, max_tokens: 800, response_format: { type: 'json_object' } });
       const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Groq API summarize timed out')), 4000));
       const completion = await Promise.race([groqCall, timeout]);
