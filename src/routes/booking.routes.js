@@ -9,5 +9,6 @@ router.post('/:id/verify-payment', booking.verifyPayment);
 router.get('/:id/meet-link', booking.getMeetLink);
 router.patch('/:id/reschedule', booking.rescheduleBooking);
 router.post('/:id/cancel', booking.cancelBooking);
+router.post('/:id/intake', booking.submitBookingIntake);
 
 module.exports = router;

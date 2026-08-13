@@ -423,4 +423,104 @@ async function cancelBooking(req, res) {
   }
 }
 
-module.exports = { createBooking, verifyPayment, getMeetLink, rescheduleBooking, cancelBooking };
+// ── SUBMIT BOOKING INTAKE (PRE-SESSION PREREQUISITES) ──────────────────────────
+async function generateAIBriefingSummary({ booking, mentor, mentee, intakeAnswers }) {
+  const Groq = require('groq-sdk');
+  if (!config.groq?.apiKey) {
+    const goals = intakeAnswers.primaryGoal || intakeAnswers.notes || '1:1 Guidance Session';
+    const qs = Array.isArray(intakeAnswers.keyQuestions) ? intakeAnswers.keyQuestions.join(', ') : (intakeAnswers.keyQuestions || '');
+    return `🎯 **Mentee Goal & Target**: ${goals}\n❓ **Priority Questions to Answer**: ${qs || 'Consultation & guidance'}\n⏱️ **Recommended Session Roadmap**: Start with goals, address top questions, define action items.`;
+  }
+
+  try {
+    const client = new Groq({ apiKey: config.groq.apiKey });
+    const prompt = `You are an AI briefing assistant for HelpMeMan. A mentee named ${mentee?.name || 'User'} has booked a ${booking.durationMinutes}-minute consultation with mentor ${mentor?.displayName || 'Mentor'} (${mentor?.category?.name || 'General'}).
+
+Mentee's Pre-Session Intake Details:
+- Primary Goal: ${intakeAnswers.primaryGoal || intakeAnswers.goal || 'Not specified'}
+- Key Questions: ${Array.isArray(intakeAnswers.keyQuestions) ? intakeAnswers.keyQuestions.join('; ') : (intakeAnswers.keyQuestions || intakeAnswers.questions || 'Not specified')}
+- Current Background / Level: ${intakeAnswers.currentLevel || intakeAnswers.background || intakeAnswers.notes || 'Not specified'}
+- Specific Topics/Links: ${intakeAnswers.links || intakeAnswers.specificTopics || 'None'}
+
+Synthesize a high-impact, 3-bullet briefing summary for the mentor to read in 10 seconds before joining the video call. Return plain markdown formatted EXACTLY as:
+
+🎯 **Mentee Goal & Target**: [1 concise sentence]
+❓ **Priority Questions to Answer**: [1-2 key points]
+⏱️ **Recommended Session Roadmap**: [Quick timing breakdown for the ${booking.durationMinutes}-min session]`;
+
+    const groqCall = client.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+      max_tokens: 300,
+    });
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Groq API timeout')), 4000));
+    const result = await Promise.race([groqCall, timeout]);
+    return result.choices[0]?.message?.content?.trim() || `🎯 **Mentee Goal & Target**: ${intakeAnswers.primaryGoal || 'Consultation'}\n❓ **Priority Questions to Answer**: ${Array.isArray(intakeAnswers.keyQuestions) ? intakeAnswers.keyQuestions.join(', ') : 'Guidance & QA'}`;
+  } catch (error) {
+    console.warn('[booking] AI briefing generation fallback:', error.message);
+    const goals = intakeAnswers.primaryGoal || intakeAnswers.notes || '1:1 Guidance Session';
+    const qs = Array.isArray(intakeAnswers.keyQuestions) ? intakeAnswers.keyQuestions.join(', ') : (intakeAnswers.keyQuestions || '');
+    return `🎯 **Mentee Goal & Target**: ${goals}\n❓ **Priority Questions to Answer**: ${qs || 'Consultation & guidance'}\n⏱️ **Recommended Session Roadmap**: Address key questions, discuss action plan.`;
+  }
+}
+
+async function submitBookingIntake(req, res) {
+  try {
+    const { id } = req.params;
+    const { intakeAnswers } = req.body;
+
+    if (!intakeAnswers || typeof intakeAnswers !== 'object') {
+      return res.status(400).json({ error: 'intakeAnswers object is required' });
+    }
+
+    const booking = await prisma.booking.findFirst({
+      where: { id, userId: req.user.id },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        mentor: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            category: { select: { name: true, slug: true } },
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    // Synthesize AI Briefing Summary
+    const aiBriefSummary = await generateAIBriefingSummary({
+      booking,
+      mentor: booking.mentor,
+      mentee: booking.user,
+      intakeAnswers,
+    });
+
+    const updated = await prisma.booking.update({
+      where: { id },
+      data: {
+        intakeAnswers,
+        aiBriefSummary,
+      },
+    });
+
+    // Notify mentor of updated pre-session brief
+    sendNotification({
+      mentorId: booking.mentorId,
+      type: 'BOOKING_INTAKE_SUBMITTED',
+      title: '⚡ Pre-Session Briefing Ready',
+      body: `${booking.user.name} submitted session prerequisites for your upcoming call.`,
+      metadata: { bookingId: id },
+    }).catch((err) => console.error('[booking] Intake notification error:', err.message));
+
+    res.json({ success: true, booking: updated });
+  } catch (e) {
+    console.error('[booking] submitBookingIntake error:', e);
+    res.status(500).json({ error: 'Failed to submit session intake answers.' });
+  }
+}
+
+module.exports = { createBooking, verifyPayment, getMeetLink, rescheduleBooking, cancelBooking, submitBookingIntake };

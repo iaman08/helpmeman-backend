@@ -91,6 +91,8 @@ model Booking {
   amountPaidINR      Int?
   userNotes          String?
   mentorNotes        String?
+  intakeAnswers      Json?
+  aiBriefSummary     String?       @db.Text
   cancelledBy        String?
   cancellationReason String?
   review             Review?
