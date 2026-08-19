@@ -90,7 +90,6 @@ function initReminderQueue(redisUrl) {
             body: 'Your session starts soon!',
             sendEmail: false,
           });
-        }
       }, { connection });
 
       worker.on('error', err => {

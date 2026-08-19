@@ -537,6 +537,9 @@ async function sendMentorApplicationToAdminEmail(mentorUser, answers) {
     to: adminEmail,
     subject: `New Mentor Application: ${name} — HelpMeMan`,
     html,
+  });
+}
+
 async function sendAccountStatusEmail(user, status, reason) {
   let html;
   const isOnHold = status === 'ON_HOLD';

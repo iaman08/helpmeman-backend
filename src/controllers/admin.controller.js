@@ -121,14 +121,17 @@ const { sendAccountStatusEmail } = require('../services/email.service');
 
 async function getAllUsers(req, res) {
   try {
-    const { q, page = 1, limit = 20 } = req.query;
+    const { q, status, page = 1, limit = 20 } = req.query;
     const where = {};
     if (q) where.OR = [{ name: { contains: q, mode: 'insensitive' } }, { email: { contains: q, mode: 'insensitive' } }];
+    if (status && ['ACTIVE', 'ON_HOLD', 'DISABLED', 'DELETED'].includes(status)) where.status = status;
+    const parsedPage = parseInt(page) || 1;
+    const parsedLimit = Math.min(parseInt(limit) || 20, 100);
     const [users, total] = await Promise.all([
-      prisma.user.findMany({ where, select: { id: true, name: true, email: true, role: true, status: true, createdAt: true, isEmailVerified: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
+      prisma.user.findMany({ where, select: { id: true, name: true, email: true, role: true, status: true, createdAt: true, isEmailVerified: true }, orderBy: { createdAt: 'desc' }, skip: (parsedPage - 1) * parsedLimit, take: parsedLimit }),
       prisma.user.count({ where }),
     ]);
-    res.json({ users, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
+    res.json({ users, total, page: parsedPage, totalPages: Math.ceil(total / parsedLimit) });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 

@@ -16,7 +16,7 @@ const { invalidateCachedUser } = require('../services/auth.service');
  */
 async function listAllUsers(req, res) {
   try {
-    const { q, role, page = 1, limit = 50 } = req.query;
+    const { q, role, status, page = 1, limit = 50 } = req.query;
     const where = {};
 
     if (q) {
@@ -27,6 +27,9 @@ async function listAllUsers(req, res) {
     }
     if (role && VALID_ROLES.includes(role)) {
       where.role = role;
+    }
+    if (status && ['ACTIVE', 'ON_HOLD', 'DISABLED', 'DELETED'].includes(status)) {
+      where.status = status;
     }
 
     const parsedPage = parseInt(page) || 1;
@@ -40,6 +43,7 @@ async function listAllUsers(req, res) {
           name: true,
           email: true,
           role: true,
+          status: true,
           isEmailVerified: true,
           createdAt: true,
           updatedAt: true,
