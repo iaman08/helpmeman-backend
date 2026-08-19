@@ -52,7 +52,6 @@ const superAdminRoutes = require('./routes/superAdmin.routes');
 const adminManagementRoutes = require('./routes/adminManagement.routes');
 const reviewRoutes = require('./routes/review.routes');
 const platformReviewRoutes = require('./routes/platformReview.routes');
-const devRoutes = require('./routes/dev.routes');
 
 const app = express();
 // Enable proxy trust across multi-tier reverse proxies (Cloudflare + DigitalOcean Load Balancer)
@@ -207,7 +206,6 @@ app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/super-admin/admin-management', adminManagementRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/platform-reviews', platformReviewRoutes);
-app.use('/api/dev', devRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {

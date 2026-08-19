@@ -298,7 +298,6 @@ enum SenderRole {
 }
 
 enum Role {
-  DEVELOPER
   SUPER_ADMIN
   ADMIN
   MENTOR
