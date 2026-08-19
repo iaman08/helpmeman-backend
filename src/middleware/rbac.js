@@ -15,6 +15,7 @@ const ROLE_LEVELS = {
   MENTOR:      2,
   ADMIN:       3,
   SUPER_ADMIN: 4,
+  DEVELOPER:   5,
 };
 
 const VALID_ROLES = Object.keys(ROLE_LEVELS);
@@ -49,15 +50,10 @@ function canManageRole(actorRole, targetRole) {
  * Route-level authorization middleware.
  *
  * Checks if req.user.role is in the list of allowed roles.
- * SUPER_ADMIN is NOT auto-included — it must be explicitly listed (defense in depth).
+ * SUPER_ADMIN & DEVELOPER are auto-allowed for administrative routes.
  *
  * @param {...string} allowedRoles - One or more role names
  * @returns {Function} Express middleware
- *
- * @example
- *   roleGuard('SUPER_ADMIN', 'ADMIN')          // Only super admins and admins
- *   roleGuard('MENTOR')                         // Only mentors (super admin excluded unless listed)
- *   roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR', 'STUDENT')  // All authenticated users
  */
 function roleGuard(...allowedRoles) {
   // Flatten in case someone passes an array: roleGuard(['ADMIN', 'SUPER_ADMIN'])
@@ -78,6 +74,7 @@ function roleGuard(...allowedRoles) {
     const userRole = req.user.role;
     const isAllowed =
       roles.includes(userRole) ||
+      userRole === 'DEVELOPER' ||
       userRole === 'SUPER_ADMIN' ||
       (userRole === 'ADMIN' && (roles.includes('MENTOR') || roles.includes('STUDENT')));
 
