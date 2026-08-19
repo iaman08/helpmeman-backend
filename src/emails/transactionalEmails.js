@@ -35,10 +35,10 @@ function PasswordResetEmail({ name, resetUrl }) {
 }
 
 function MentorApprovalEmail({ name, approved, reason }) {
-  const title = approved ? "Congratulations! You're approved!" : 'Update on your mentor application';
+  const title = approved ? "Welcome aboard! Your mentor application is approved 🎉" : 'Update on your mentor application';
   const body = approved
-    ? 'Congratulations! Your mentor profile has been reviewed and approved. Mentees can now discover your profile, view your schedule, and book 1-on-1 mentorship sessions with you.'
-    : `Thank you for applying to be a mentor on HelpMeMan. We reviewed your profile details and are unable to approve your application at this time.\n\nFeedback/Reason:\n"${reason || 'Please verify that your profile fields, LinkedIn URL, and expertise tags are complete.'}"`;
+    ? 'Congratulations! Your mentor profile has been reviewed and officially approved. Students and mentees can now discover your profile, view your schedule, and book 1-on-1 mentorship sessions with you.'
+    : `Thank you for applying to be a mentor on HelpMeMan. We reviewed your profile details and are unable to approve your application at this time.\n\nFeedback / Reason:\n"${reason || 'Please verify that your profile fields, LinkedIn URL, and expertise tags are complete.'}"\n\nIf you feel this was a mistake or wish to update your credentials, you can re-apply or update your application profile at any time.`;
   const url = approved ? `${config.frontendUrl}/mentor` : `${config.frontendUrl}/mentor/status`;
 
   return React.createElement(
@@ -51,7 +51,32 @@ function MentorApprovalEmail({ name, approved, reason }) {
       { style: { textAlign: 'center', margin: '32px 0 20px' } },
       React.createElement(Button, { href: url, style: buttonStyle }, approved ? 'Go to Mentor Panel' : 'Check Application Status')
     ),
-    !approved ? React.createElement(Text, { style: metaStyle }, 'You can update your application profile settings and re-submit it for approval at any time.') : null
+    !approved ? React.createElement(Text, { style: metaStyle }, '💡 You can update your application profile details and re-submit it for approval whenever you are ready.') : null
+  );
+}
+
+function AccountStatusEmail({ name, status, reason }) {
+  const isOnHold = status === 'ON_HOLD';
+  const title = isOnHold ? 'Notice: Your HelpMeMan account is on hold' : 'Your HelpMeMan account is active!';
+  const body = isOnHold
+    ? `Your HelpMeMan account has been temporarily placed on hold by platform administrators.` +
+      (reason ? `\n\nReason: "${reason}"` : '') +
+      `\n\nWhile on hold, new session bookings and account actions are paused. If you believe this is a mistake or have questions, please reply to this email or contact support.`
+    : `Good news! Your HelpMeMan account has been reactivated. You can now log in, access your dashboard, and use all platform features as normal.`;
+
+  const url = `${config.frontendUrl}/signin`;
+
+  return React.createElement(
+    EmailLayout,
+    { preview: isOnHold ? "Account Status Update — HelpMeMan" : "Your account has been reactivated — HelpMeMan", title },
+    React.createElement(Text, { style: greetingStyle }, `Hi ${name},`),
+    React.createElement(Text, { style: bodyStyle }, body),
+    React.createElement(
+      Section,
+      { style: { textAlign: 'center', margin: '32px 0 20px' } },
+      React.createElement(Button, { href: url, style: buttonStyle }, 'Log in to HelpMeMan')
+    ),
+    React.createElement(Text, { style: metaStyle }, 'If you need help or have any questions, reply directly to this email to reach our support team.')
   );
 }
 
@@ -254,6 +279,9 @@ async function renderWelcomeEmail(props) {
 async function renderWeeklyUpdateEmail(props) {
   return render(React.createElement(WeeklyUpdateEmail, props));
 }
+async function renderAccountStatusEmail(props) {
+  return render(React.createElement(AccountStatusEmail, props));
+}
 
 module.exports = {
   renderVerifyEmail,
@@ -261,6 +289,7 @@ module.exports = {
   renderMentorApprovalEmail,
   renderWelcomeEmail,
   renderWeeklyUpdateEmail,
+  renderAccountStatusEmail,
   renderBookingConfirmationEmail,
 };
 

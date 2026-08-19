@@ -117,17 +117,70 @@ async function toggleMentorActive(req, res) {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 
+const { sendAccountStatusEmail } = require('../services/email.service');
+
 async function getAllUsers(req, res) {
   try {
     const { q, page = 1, limit = 20 } = req.query;
     const where = {};
     if (q) where.OR = [{ name: { contains: q, mode: 'insensitive' } }, { email: { contains: q, mode: 'insensitive' } }];
     const [users, total] = await Promise.all([
-      prisma.user.findMany({ where, select: { id: true, name: true, email: true, role: true, createdAt: true, isEmailVerified: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
+      prisma.user.findMany({ where, select: { id: true, name: true, email: true, role: true, status: true, createdAt: true, isEmailVerified: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
       prisma.user.count({ where }),
     ]);
     res.json({ users, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
+}
+
+async function setUserStatusHandler(req, res) {
+  try {
+    const { status, reason } = req.body;
+    if (!['ACTIVE', 'ON_HOLD', 'DISABLED'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: { mentor: true },
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { status },
+    });
+
+    if (targetUser.mentor) {
+      await prisma.mentor.update({
+        where: { id: targetUser.mentor.id },
+        data: { isActive: status === 'ACTIVE' },
+      });
+    }
+
+    await logAuditEvent({
+      action: 'USER_STATUS_CHANGED',
+      actorId: req.user.id,
+      targetId: req.params.id,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email, newStatus: status, reason },
+    });
+
+    try {
+      await sendAccountStatusEmail(targetUser, status, reason);
+    } catch (emailError) {
+      console.error('[EMAIL] Account status update email failed:', emailError.message);
+    }
+
+    res.json({ user: updatedUser });
+  } catch (e) {
+    console.error('[ADMIN] setUserStatusHandler error:', e);
+    res.status(500).json({ error: 'Failed to update user status' });
+  }
 }
 
 async function getAllBookings(req, res) {
@@ -213,4 +266,4 @@ async function getChatStats(req, res) {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 
-module.exports = { getDashboard, getPendingMentors, getMentorDetail, approveMentorHandler, rejectMentorHandler, getAllMentors, toggleMentorActive, getAllUsers, getAllBookings, getCategories, createCategory, updateCategory, getEarnings, getAllReviews, getChatStats };
+module.exports = { getDashboard, getPendingMentors, getMentorDetail, approveMentorHandler, rejectMentorHandler, getAllMentors, toggleMentorActive, getAllUsers, setUserStatusHandler, getAllBookings, getCategories, createCategory, updateCategory, getEarnings, getAllReviews, getChatStats };

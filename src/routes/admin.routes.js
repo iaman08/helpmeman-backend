@@ -17,6 +17,7 @@ router.post('/mentors/:id/reject', admin.rejectMentorHandler);
 router.get('/mentors', admin.getAllMentors);
 router.put('/mentors/:id/toggle-active', admin.toggleMentorActive);
 router.get('/users', admin.getAllUsers);
+router.post('/users/:id/status', admin.setUserStatusHandler);
 router.get('/bookings', admin.getAllBookings);
 router.get('/categories', admin.getCategories);
 router.post('/categories', admin.createCategory);

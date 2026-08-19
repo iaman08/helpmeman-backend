@@ -18,6 +18,7 @@ const {
   renderMentorApprovalEmail,
   renderWelcomeEmail,
   renderWeeklyUpdateEmail,
+  renderAccountStatusEmail,
   renderBookingConfirmationEmail,
 } = require('../emails/transactionalEmails');
 
@@ -536,7 +537,35 @@ async function sendMentorApplicationToAdminEmail(mentorUser, answers) {
     to: adminEmail,
     subject: `New Mentor Application: ${name} — HelpMeMan`,
     html,
-    templateType: 'admin_mentor_application_review',
+async function sendAccountStatusEmail(user, status, reason) {
+  let html;
+  const isOnHold = status === 'ON_HOLD';
+  const name = user.name || user.displayName || 'there';
+
+  try {
+    html = await renderAccountStatusEmail({ name, status, reason });
+  } catch (error) {
+    console.error('[EMAIL] Account status template render failed, using fallback:', error.message);
+    const title = isOnHold ? 'Notice: Your HelpMeMan account is on hold' : 'Your HelpMeMan account is active!';
+    const body = isOnHold
+      ? `Hi ${name},\n\nYour HelpMeMan account has been temporarily placed on hold by platform administration.` +
+        (reason ? `\n\nReason: "${reason}"` : '') +
+        `\n\nIf you have any questions or believe this is an error, please reply to this email to contact support.`
+      : `Hi ${name},\n\nGood news! Your HelpMeMan account has been reactivated. You can now log in and access your account features.`;
+
+    html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:40px;line-height:1.6;color:#334155;">
+      <h2 style="color:#0f172a;">${title}</h2>
+      <p style="white-space:pre-wrap;">${body}</p>
+      <p style="margin-top:30px;font-size:13px;color:#64748b;">HelpMeMan Team</p>
+    </div>`;
+  }
+
+  return sendEmail({
+    to: user.email,
+    subject: isOnHold ? 'Notice: Your HelpMeMan account is on hold' : 'Your HelpMeMan account has been reactivated',
+    html,
+    userId: user.id || user.userId,
+    templateType: isOnHold ? 'account_on_hold' : 'account_active',
   });
 }
 
@@ -550,6 +579,7 @@ module.exports = {
   sendMentorApprovalEmail,
   sendMentorUnderReviewEmail,
   sendMentorApplicationToAdminEmail,
+  sendAccountStatusEmail,
   sendWeeklyUpdateEmail,
   sendBookingConfirmationEmails,
   retryFailedEmails,
