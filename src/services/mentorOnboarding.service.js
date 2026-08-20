@@ -47,10 +47,13 @@ const QUESTIONS = [
     type: 'multi_choice',
     text: 'Pick the areas you feel strongest mentoring in.',
     options: [
-      'NEET UG Strategy',
-      'AIIMS & Medical Prep',
+      'Gym & Fitness Training',
+      'Fat Loss & Muscle Building',
+      'Strength & Hypertrophy',
       'Diet & Clinical Nutrition',
       'Health & Lifestyle Guidance',
+      'NEET UG Strategy',
+      'AIIMS & Medical Prep',
       'CLAT & Law Entrance',
       'Corporate Law & Litigation',
       'JEE Prep',
@@ -77,6 +80,8 @@ const QUESTIONS = [
     type: 'single_choice',
     text: 'What type of mentees do you enjoy working with most?',
     options: [
+      'Gym & Fitness Beginners',
+      'Fat Loss & Body Transformation Seekers',
       'Medical Aspirants / NEET',
       'Diet & Health Guidance Seekers',
       'Law & CLAT Aspirants',
@@ -205,6 +210,7 @@ Recent context:
 ${context || '(none)'}
 
 SPECIAL INSTRUCTION FOR MULTI-DOMAIN ACADEMIC & PROFESSIONAL BACKGROUNDS:
+- **Gym & Fitness Coaches / Trainers**: If the mentor mentions Fitness, Gym, Bodybuilding, Workout, Strength Training, Fat Loss, or Hypertrophy, acknowledge their fitness journey warmly and probe key details (e.g., years training, areas of expertise like Fat Loss/Muscle Gain, target coaching clientele, biggest beginner mistakes they fix, diet/nutrition assistance, expected client results, and pre-session advice).
 - **Lawyers / Legal**: If the mentor mentions Law, CLAT, Bar Council enrollment, NLU, Advocate, or Court practice, acknowledge their legal credentials warmly and probe key details (e.g. Bar enrollment, Court practice, corporate law, or CLAT strategy).
 - **Doctors / Medical Students**: If the mentor mentions MBBS, NEET rank, AIIMS/MAMC, Medical Council / NMC registration, or medical specialization, acknowledge their medical journey and probe key details (e.g. NEET AIR rank, medical college, or dropper strategy).
 - **Nutritionists / Health Counselors**: If the mentor mentions Diet, Clinical Nutrition, Doctor / MBBS health guide, or wellness practice, acknowledge their clinical background and probe key diet/health specialization areas.
@@ -226,7 +232,7 @@ function detectCategorySlug(text = '') {
   if (lower.includes('law') || lower.includes('clat') || lower.includes('legal') || lower.includes('advocate') || lower.includes('nlu') || lower.includes('court') || lower.includes('litigation')) {
     return 'law';
   }
-  if (lower.includes('diet') || lower.includes('nutrition') || lower.includes('health') || lower.includes('wellness') || lower.includes('doctor') || lower.includes('clinical') || lower.includes('lifestyle')) {
+  if (lower.includes('diet') || lower.includes('nutrition') || lower.includes('health') || lower.includes('fitness') || lower.includes('gym') || lower.includes('workout') || lower.includes('wellness') || lower.includes('doctor') || lower.includes('clinical') || lower.includes('lifestyle')) {
     return 'health-nutrition';
   }
   if (lower.includes('neet') || lower.includes('mbbs') || lower.includes('aiims') || lower.includes('medical') || lower.includes('mamc') || lower.includes('jipmer') || lower.includes('kgmu')) {
@@ -274,7 +280,7 @@ async function summarize(userId) {
   if (config.groq.apiKey) {
     try {
       const client = new Groq({ apiKey: config.groq.apiKey });
-      const prompt = `Create a professional multi-domain mentor profile from these onboarding answers. Extract domain specializations (e.g. NEET UG Strategy, Clinical Nutrition, Bar Council / Court Litigation, FAANG Tech) and any professional credentials/licenses mentioned (e.g. Bar Council ID, Medical Registration No., AIIMS Rank).
+      const prompt = `Create a professional multi-domain mentor profile from these onboarding answers. Extract domain specializations (e.g. Gym & Fitness Training, Fat Loss & Hypertrophy, NEET UG Strategy, Clinical Nutrition, Bar Council / Court Litigation, FAANG Tech) and any professional credentials/licenses or achievements mentioned (e.g. Certifications, Bar Council ID, Medical Registration No., AIIMS/JEE Rank).
 
 Return valid JSON only with keys:
 name, preferredName, role, company, location, skills (array), experienceYears (integer or null), bio (80-120 words), mentoringStyle (object), goals (string), summary (string), expertiseTags (max 8 array), personality (object with communication_style, mentoring_style, experience_level, preferred_mentees, domain_credentials).\n\n${transcript}`;
