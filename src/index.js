@@ -35,6 +35,8 @@ function gzipMiddleware(req, res, next) {
 
 // Routes
 const authRoutes = require('./routes/auth.routes');
+const securedAuthRoutes = require('./routes/securedAuth.routes');
+
 const userRoutes = require('./routes/user.routes');
 const mentorRoutes = require('./routes/mentor.routes');
 const mentorDashboardRoutes = require('./routes/mentorDashboard.routes');
@@ -189,6 +191,8 @@ app.use((req, _res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/v2/auth', securedAuthRoutes);
+
 app.use('/api/users', userRoutes);
 app.use('/api/mentors', mentorRoutes);
 app.use('/api/mentor/onboarding', onboardingRoutes);
@@ -285,14 +289,10 @@ app.get('/api/debug/supabase-check', async (req, res) => {
   }
 });
 
-// Error handler
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  const isDev = process.env.NODE_ENV === 'development';
-  res.status(err.status || 500).json({
-    error: isDev ? (err.message || 'Internal server error') : 'Internal server error'
-  });
-});
+// Centralized OWASP-compliant Global Error Handler
+const errorHandler = require('./middleware/errorHandler');
+app.use(errorHandler);
+
 
 // Start
 const PORT = config.port;
