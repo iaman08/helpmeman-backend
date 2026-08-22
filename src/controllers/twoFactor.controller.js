@@ -23,12 +23,16 @@ authenticator.options = {
  */
 async function setup2FA(req, res) {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'Unauthorized user session' });
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: { id: true, email: true, role: true, twoFactorEnabled: true, twoFactorSecret: true },
     });
 
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: 'User profile not found' });
 
     // Generate new secret or reuse existing setup secret if not enabled yet
     let secret = user.twoFactorSecret;
@@ -51,8 +55,8 @@ async function setup2FA(req, res) {
       twoFactorEnabled: user.twoFactorEnabled,
     });
   } catch (error) {
-    console.error('[2FA Setup] Error:', error);
-    res.status(500).json({ error: 'Failed to generate 2FA setup details' });
+    console.error('[2FA Setup] Error details:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate 2FA setup details' });
   }
 }
 

@@ -81,6 +81,24 @@ async function verifySession(token) {
     if (localUser) return localUser;
   }
 
+  // ── 1.5. Custom JWT Verification (for app-issued JWT access tokens) ────────
+  try {
+    const jwt = require('jsonwebtoken');
+    const config = require('../config/env');
+    const decoded = jwt.verify(token, config.jwtSecret);
+    if (decoded && (decoded.userId || decoded.id)) {
+      const targetId = decoded.userId || decoded.id;
+      const prisma = require('../config/prisma');
+      const localUser = await prisma.user.findUnique({ where: { id: targetId } });
+      if (localUser) {
+        setCachedUser(token, localUser);
+        return localUser;
+      }
+    }
+  } catch {
+    // Token is not a custom app JWT, proceed to Supabase verification...
+  }
+
   // ── 2. Cache hit — skip Supabase network call entirely ────────────────────
   const cached = getCachedUser(token);
   if (cached) {
