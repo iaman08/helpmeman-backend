@@ -15,6 +15,8 @@ const {
 } = require('../schemas/auth.schema');
 const auth = require('../controllers/auth.controller');
 
+const twoFactor = require('../controllers/twoFactor.controller');
+
 router.post('/register', authLimiter, validate(registerSchema), auth.register);
 router.post('/verify-signup-otp', otpLimiter, validate(verifyOtpSchema), auth.verifySignupOTP);
 router.post('/register/mentor', authLimiter, validate(registerSchema), auth.registerMentor);
@@ -28,6 +30,12 @@ router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), auth
 router.post('/verify-reset-otp', otpLimiter, validate(verifyResetOtpSchema), auth.verifyResetOTP);
 router.post('/reset-password', authLimiter, validate(resetPasswordSchema), auth.resetPassword);
 router.post('/resend-otp', otpLimiter, auth.resendOTP);
+
+// 2FA Routes (Google Authenticator TOTP)
+router.get('/2fa/setup', authenticate, twoFactor.setup2FA);
+router.post('/2fa/enable', authenticate, twoFactor.enable2FA);
+router.post('/2fa/disable', authenticate, twoFactor.disable2FA);
+router.post('/2fa/verify-login', authLimiter, twoFactor.verify2FALogin);
 
 // Protected: must be authenticated.
 router.post('/change-password', authenticate, validate(changePasswordSchema), auth.changePassword);

@@ -48,6 +48,8 @@ model User {
   lastReviewPromptAt       DateTime?
   reviewPromptDismissCount Int              @default(0)
   reviewCooldownUntil      DateTime?
+  twoFactorEnabled         Boolean          @default(false)
+  twoFactorSecret          String?
   platformReviews          PlatformReview[]
 
   @@index([username])

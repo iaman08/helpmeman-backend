@@ -468,6 +468,22 @@ async function login(req, res) {
       };
     }
 
+    // Check 2FA requirement for Admin/Super Admin/2FA enabled users
+    if (user.twoFactorEnabled) {
+      console.log(`[AUTH] 2FA verification required for user: ${email} (${user.role})`);
+      const tempToken = jwt.sign(
+        { userId: user.id, is2FAPending: true },
+        config.jwtSecret,
+        { expiresIn: '5m' }
+      );
+      return res.json({
+        requires2FA: true,
+        tempToken,
+        email: user.email,
+        role: user.role,
+      });
+    }
+
     // Track last login
     prisma.user.update({ where: { id: user.id }, data: { lastSeen: new Date() } }).catch(() => {});
 
@@ -483,8 +499,10 @@ async function login(req, res) {
         username: user.username || null,
         currentRole: user.currentRole || null,
         currency: user.currency || null,
+        twoFactorEnabled: user.twoFactorEnabled || false,
       },
       mentor: mentorData,
+      requires2FASetup: (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') && !user.twoFactorEnabled,
       accessToken: data.session.access_token,
       refreshToken: data.session.refresh_token,
     });
