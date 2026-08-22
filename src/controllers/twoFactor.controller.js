@@ -1,21 +1,15 @@
 /**
  * Two-Factor Authentication (2FA / TOTP) Controller
  * Supports Google Authenticator, Authy, etc. for Admin & Super Admin accounts.
+ * Compatible with otplib v13+ (generateSecret, generateURI, verifySync)
  */
 
-const { authenticator } = require('otplib');
+const { generateSecret, generateURI, verifySync } = require('otplib');
 const QRCode = require('qrcode');
 const prisma = require('../config/prisma');
 const jwt = require('jsonwebtoken');
 const config = require('../config/env');
 const { generateAccessToken, generateRefreshToken } = require('../utils/jwt');
-
-// Configure otplib app name
-authenticator.options = {
-  issuer: 'HelpMeMan',
-  step: 30,
-  window: 1, // Allow 1 step (30s) drift for clock differences
-};
 
 /**
  * 1. Setup 2FA: Generates a TOTP secret and QR code for scanning
@@ -37,16 +31,22 @@ async function setup2FA(req, res) {
     // Generate new secret or reuse existing setup secret if not enabled yet
     let secret = user.twoFactorSecret;
     if (!secret || !user.twoFactorEnabled) {
-      secret = authenticator.generateSecret();
-      // Store secret temporarily in DB
+      secret = generateSecret();
       await prisma.user.update({
         where: { id: user.id },
         data: { twoFactorSecret: secret },
       });
     }
 
-    const otpAuthUrl = authenticator.keyuri(user.email, 'HelpMeMan Admin', secret);
+    const otpAuthUrl = generateURI({
+      secret,
+      label: user.email,
+      issuer: 'HelpMeMan',
+    });
+
     const qrCodeUrl = await QRCode.toDataURL(otpAuthUrl);
+
+    console.log(`[2FA Setup] Successfully generated QR code and secret for ${user.email}`);
 
     res.json({
       secret,
@@ -80,8 +80,8 @@ async function enable2FA(req, res) {
       return res.status(400).json({ error: '2FA setup not initiated. Please generate a QR code first.' });
     }
 
-    const isValid = authenticator.check(code.trim(), user.twoFactorSecret);
-    if (!isValid) {
+    const verifyResult = verifySync({ token: code.trim(), secret: user.twoFactorSecret });
+    if (!verifyResult || !verifyResult.valid) {
       return res.status(400).json({ error: 'Invalid verification code. Please check your Google Authenticator app.' });
     }
 
@@ -96,7 +96,7 @@ async function enable2FA(req, res) {
     });
   } catch (error) {
     console.error('[2FA Enable] Error:', error);
-    res.status(500).json({ error: 'Failed to enable 2FA' });
+    res.status(500).json({ error: error.message || 'Failed to enable 2FA' });
   }
 }
 
@@ -120,8 +120,8 @@ async function disable2FA(req, res) {
       return res.status(400).json({ error: '2FA is not enabled on this account' });
     }
 
-    const isValid = authenticator.check(code.trim(), user.twoFactorSecret);
-    if (!isValid) {
+    const verifyResult = verifySync({ token: code.trim(), secret: user.twoFactorSecret });
+    if (!verifyResult || !verifyResult.valid) {
       return res.status(400).json({ error: 'Invalid 2FA code' });
     }
 
@@ -133,7 +133,7 @@ async function disable2FA(req, res) {
     res.json({ message: '2FA disabled successfully', twoFactorEnabled: false });
   } catch (error) {
     console.error('[2FA Disable] Error:', error);
-    res.status(500).json({ error: 'Failed to disable 2FA' });
+    res.status(500).json({ error: error.message || 'Failed to disable 2FA' });
   }
 }
 
@@ -169,8 +169,8 @@ async function verify2FALogin(req, res) {
       return res.status(400).json({ error: '2FA is not enabled for this account' });
     }
 
-    const isValid = authenticator.check(code.trim(), user.twoFactorSecret);
-    if (!isValid) {
+    const verifyResult = verifySync({ token: code.trim(), secret: user.twoFactorSecret });
+    if (!verifyResult || !verifyResult.valid) {
       return res.status(400).json({ error: 'Invalid 6-digit Google Authenticator code. Please try again.' });
     }
 
