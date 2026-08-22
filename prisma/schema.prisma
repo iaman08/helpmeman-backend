@@ -304,6 +304,7 @@ enum Role {
   ADMIN
   MENTOR
   STUDENT
+  DEVELOPER
 }
 
 enum InstitutionType {

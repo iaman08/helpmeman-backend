@@ -398,7 +398,7 @@ async function login(req, res) {
     // Local development bypass for seeded demo accounts
     if (process.env.NODE_ENV === 'development' && 
         ['admin@helpmeman.com', 'student@helpmeman.com', 'mentor@helpmeman.com', 'official.diljha@gmail.com', 'aman@helpmeman.com'].includes(email.toLowerCase()) &&
-        (password === 'password123' || password === 'mock123')) {
+        (password === 'Admin@4321' || password === 'password123' || password === 'mock123')) {
         
       const role = (email.toLowerCase() === 'official.diljha@gmail.com' || email.toLowerCase() === 'aman@helpmeman.com') ? 'SUPER_ADMIN' :
                    email.toLowerCase() === 'admin@helpmeman.com' ? 'ADMIN' :

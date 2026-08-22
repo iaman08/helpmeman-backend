@@ -28,7 +28,7 @@ async function main() {
   categories.forEach((c) => (catMap[c.slug] = c.id));
 
   // ─── Admin User ───
-  const adminHash = await hashPw('password123');
+  const adminHash = await hashPw('Admin@4321');
   const admin = await prisma.user.upsert({
     where: { email: 'admin@helpmeman.com' },
     update: { passwordHash: adminHash },
