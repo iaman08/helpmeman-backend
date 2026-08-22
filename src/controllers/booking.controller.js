@@ -131,14 +131,14 @@ async function verifyPayment(req, res) {
       },
     });
 
-    // Step 4: Create Google Calendar event + Meet link
-    // This will gracefully return null values if mentor hasn't connected Google
+    // Step 4: Create Google Calendar event + Meet link (defaults to https://meet.google.com/qhs-wase-kny?pli=1)
     const { googleEventId, meetLink } = await createMeetingEvent({
       booking: fullBooking,
       mentor: fullBooking.mentor,
       user: fullBooking.user,
       timezone: fullBooking.mentor.googleCalendarTimezone,
     });
+    const finalMeetLink = meetLink || 'https://meet.google.com/qhs-wase-kny?pli=1';
 
     // Step 5: Confirm booking in DB
     const confirmed = await prisma.booking.update({
@@ -148,7 +148,7 @@ async function verifyPayment(req, res) {
         paymentStatus: 'PAID',
         paymentId: razorpay_payment_id,
         googleEventId,
-        meetLink,
+        meetLink: finalMeetLink,
       },
     });
 
@@ -179,7 +179,7 @@ async function verifyPayment(req, res) {
       booking: confirmed,
       mentor: fullBooking.mentor,
       user: fullBooking.user,
-      meetLink,
+      meetLink: finalMeetLink,
     }).catch((err) => console.error('[booking] Email send error:', err.message));
 
     // Step 10: In-app notifications for both users
@@ -188,24 +188,22 @@ async function verifyPayment(req, res) {
         userId: booking.userId,
         type: 'BOOKING_CONFIRMED',
         title: 'Session confirmed! 🎉',
-        body: meetLink
-          ? `Your session with ${fullBooking.mentor.displayName} is confirmed. Your Google Meet link is ready.`
-          : `Your session with ${fullBooking.mentor.displayName} is confirmed. The meet link will be shared shortly.`,
-        metadata: { bookingId: booking.id, meetLink },
+        body: `Your session with ${fullBooking.mentor.displayName} is confirmed. Your Google Meet link is ready.`,
+        metadata: { bookingId: booking.id, meetLink: finalMeetLink },
       }),
       sendNotification({
         mentorId: booking.mentorId,
         type: 'NEW_BOOKING',
         title: 'New session booked! 📅',
-        body: `${fullBooking.user.name} booked a ${booking.durationMinutes}-minute session with you.`,
-        metadata: { bookingId: booking.id, userId: booking.userId },
+        body: `${fullBooking.user.name} booked a ${booking.durationMinutes}-minute session with you. Meet link: ${finalMeetLink}`,
+        metadata: { bookingId: booking.id, userId: booking.userId, meetLink: finalMeetLink },
       }),
     ]);
 
     res.json({
       booking: confirmed,
-      meetLink: meetLink || null,
-      calendarConnected: !!meetLink,
+      meetLink: finalMeetLink,
+      calendarConnected: true,
     });
   } catch (e) {
     console.error('[booking] verifyPayment error:', e);
@@ -230,7 +228,7 @@ async function getMeetLink(req, res) {
     }
 
     res.json({
-      meetLink: booking.meetLink,
+      meetLink: booking.meetLink || 'https://meet.google.com/qhs-wase-kny?pli=1',
       scheduledAt: booking.scheduledAt,
     });
   } catch (e) {

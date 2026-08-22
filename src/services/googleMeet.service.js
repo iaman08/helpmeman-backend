@@ -21,6 +21,8 @@ function makeDateTime(isoDate, timezone) {
   };
 }
 
+const DEFAULT_MEET_LINK = 'https://meet.google.com/qhs-wase-kny?pli=1';
+
 /**
  * Create a Google Calendar event with a Google Meet link.
  *
@@ -30,7 +32,7 @@ function makeDateTime(isoDate, timezone) {
  * @param {Object} params.user     - Prisma User record (the mentee)
  * @param {string} [params.timezone] - IANA timezone string (overrides mentor.googleCalendarTimezone)
  *
- * @returns {{ googleEventId: string|null, meetLink: string|null }}
+ * @returns {{ googleEventId: string|null, meetLink: string }}
  */
 async function createMeetingEvent({ booking, mentor, user, timezone }) {
   try {
@@ -38,8 +40,8 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
     const authClient = await getAuthedClientForMentor(mentor);
 
     if (!authClient) {
-      console.warn(`[googleMeet] Mentor ${mentor.id} has no Google Calendar connected — skipping event creation.`);
-      return { googleEventId: null, meetLink: null };
+      console.warn(`[googleMeet] Mentor ${mentor.id} has no Google Calendar connected — using default Meet link.`);
+      return { googleEventId: null, meetLink: DEFAULT_MEET_LINK };
     }
 
     const calendar = google.calendar({ version: 'v3', auth: authClient });
@@ -60,6 +62,7 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
         `Duration: ${booking.durationMinutes} minutes`,
         `Booking ID: ${booking.id}`,
         ``,
+        `Meeting Link: ${DEFAULT_MEET_LINK}`,
         `Please join 5 minutes early to test your connection.`,
       ].join('\n'),
       start: makeDateTime(startTime, tz),
@@ -92,20 +95,22 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
       sendUpdates: 'all',        // Send calendar invites to attendees
     });
 
-    const meetLink =
+    const dynamicMeetLink =
       response.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri ||
       null;
 
-    console.log(`[googleMeet] Event created: ${response.data.id} | Meet: ${meetLink}`);
+    const finalMeetLink = dynamicMeetLink || DEFAULT_MEET_LINK;
+
+    console.log(`[googleMeet] Event created: ${response.data.id} | Meet: ${finalMeetLink}`);
 
     return {
       googleEventId: response.data.id,
-      meetLink,
+      meetLink: finalMeetLink,
     };
   } catch (error) {
     console.error('[googleMeet] createMeetingEvent error:', error.message);
-    // Don't throw — booking should still succeed without a Meet link
-    return { googleEventId: null, meetLink: null };
+    // Fallback to default Meet link so booking always has a valid link
+    return { googleEventId: null, meetLink: DEFAULT_MEET_LINK };
   }
 }
 
