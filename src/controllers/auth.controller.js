@@ -894,8 +894,9 @@ async function changePassword(req, res) {
 
     // Re-sign-in the user with their new password to get a fresh, valid session.
     // This avoids the frontend having to redirect to /signin after a password change.
+    const normalizedUserEmail = (req.user.email || '').toLowerCase().trim();
     const { data: newSession, error: signInError } = await supabase.auth.signInWithPassword({
-      email: req.user.email,
+      email: normalizedUserEmail,
       password: newPassword,
     });
 

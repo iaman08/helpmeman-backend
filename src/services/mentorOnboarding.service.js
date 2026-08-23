@@ -4,95 +4,112 @@ const config = require('../config/env');
 
 const MODEL = 'llama-3.1-8b-instant';
 
-const QUESTIONS = [
+const BASE_QUESTIONS = [
   {
     key: 'full_name',
     phase: 'Identity',
     type: 'text',
-    text: "Let's begin with your name.",
+    text: "Let's begin with your full name.",
     prompt: "What's your full name?",
-    placeholder: 'Enter your name',
+    placeholder: 'Enter your full name',
   },
   {
-    key: 'preferred_name',
+    key: 'email_address',
     phase: 'Identity',
     type: 'text',
-    text: 'What should mentees call you?',
-    placeholder: 'Example: Rahul, Dr. Mehta, Priya',
+    text: "What is your email address?",
+    placeholder: 'name@domain.com',
   },
   {
-    key: 'role_company',
+    key: 'mentor_track',
     phase: 'Identity',
-    type: 'text',
-    text: "What's your current role or degree program, and where do you work or study?",
-    placeholder: 'Example: 3rd year B.Tech CSE at IIT Delhi / Senior PM at Razorpay',
-  },
-  {
-    key: 'academic_background',
-    phase: 'Background',
-    type: 'text',
-    text: "Could you share your background details? (e.g. degree/branch, year of study, whether you took a dropper/gap year, entrance rank, or your preparation procedure)",
-    placeholder: 'Example: B.Tech CSE (3rd Yr), took 1-year drop for JEE Adv Rank 1420',
-  },
-  {
-    key: 'location',
-    phase: 'Identity',
-    type: 'text',
-    text: 'Where are you based?',
-    placeholder: 'City, country, or remote',
-  },
-  {
-    key: 'skills',
-    phase: 'Expertise',
-    type: 'multi_choice',
-    text: 'Pick the areas you feel strongest mentoring in.',
-    options: [
-      'Gym & Fitness Training',
-      'Fat Loss & Muscle Building',
-      'Strength & Hypertrophy',
-      'Diet & Clinical Nutrition',
-      'Health & Lifestyle Guidance',
-      'NEET UG Strategy',
-      'AIIMS & Medical Prep',
-      'CLAT & Law Entrance',
-      'Corporate Law & Litigation',
-      'JEE Prep',
-      'Software Engineering',
-      'DSA & Coding',
-      'Product Strategy',
-      'Career Guidance',
-      'AI/ML',
-      'College Admissions',
-      'Dropper / Gap Year Strategy',
-      'Leadership',
-    ],
-  },
-  {
-    key: 'experience',
-    phase: 'Expertise',
     type: 'single_choice',
-    text: 'How many years of experience or study do you have in this field?',
-    options: ['1-2 years', '3-5 years', '6-8 years', '8+ years'],
-  },
-  {
-    key: 'preferred_mentees',
-    phase: 'Mentoring style',
-    type: 'single_choice',
-    text: 'What type of mentees do you enjoy working with most?',
+    text: "Which primary mentorship track are you joining to guide students in?",
     options: [
-      'Gym & Fitness Beginners',
-      'Fat Loss & Body Transformation Seekers',
-      'Medical Aspirants / NEET',
-      'Diet & Health Guidance Seekers',
-      'Law & CLAT Aspirants',
-      'Engineering Aspirants / JEE Mentees',
-      'Early-career professionals',
-      'College Students',
-      'Career Switchers',
-      'Droppers / Gap Year Aspirants',
+      'NEET & Medical Mentorship',
+      'JEE & Engineering Mentorship',
+      'Law & CLAT Mentorship',
+      'Career Guidance & Professional Mentorship',
     ],
   },
 ];
+
+const MEDICAL_QUESTIONS = [
+  { key: 'institution', phase: 'Background', type: 'text', text: "Which College or University did you attend or are currently studying at?", placeholder: 'Example: AIIMS New Delhi, MAMC, KGMU, JIPMER, KMC Manipal' },
+  { key: 'branch_year', phase: 'Background', type: 'text', text: "What is your Branch / Specialization and your current year or graduation year?", placeholder: 'Example: MBBS 4th Year / MD General Medicine (Batch of 2024)' },
+  { key: 'current_status', phase: 'Background', type: 'single_choice', text: "What is your current status?", options: ['Medical Student (MBBS/BDS)', 'Junior Resident / Intern', 'Working Professional', 'Other'] },
+  { key: 'exam_background', phase: 'Background', type: 'text', text: "What is your medical entrance examination background? Mention your NEET-UG year & percentile or NEET-PG rank if applicable.", placeholder: 'Example: NEET-UG 2021 AIR 450 (99.9 percentile), NEET-PG 2025 AIR 120' },
+  { key: 'mentor_areas', phase: 'Expertise', type: 'multi_choice', text: "Which areas can you confidently mentor NEET aspirants in?", options: ['Physics', 'Chemistry', 'Biology (Botany)', 'Biology (Zoology)', 'Study Planning and Strategy', 'Mental Health and Stress Management', 'Revision Techniques'] },
+  { key: 'prior_experience', phase: 'Expertise', type: 'single_choice', text: "Have you previously taught, mentored, guided or coached students?", options: ['Yes', 'No'] },
+  { key: 'experience_details', phase: 'Expertise', type: 'text', text: "Briefly describe your mentoring or teaching experience. Mention who you mentored, approximate number of students, what you helped with and duration.", placeholder: 'Example: Mentored 15 NEET droppers over 1 year focusing on Physics numericals & 3-stage revision.' },
+  { key: 'scenario_mock_scores', phase: 'Mentoring Scenario', type: 'text', text: "SCENARIO: A NEET aspirant says: 'I have studied for months, but my mock-test scores are not improving. I feel I am working hard but do not know what I am doing wrong.' How would you approach the student's first mentoring session?", placeholder: 'Describe your diagnostic approach, error-analysis method, and action plan...' },
+  { key: 'scenario_biology_retention', phase: 'Mentoring Scenario', type: 'text', text: "SCENARIO: A student is struggling with the high volume of syllabus in Biology and feels overwhelmed. They are forgetting topics as soon as they study them. How would you help them improve their retention?", placeholder: 'Explain your active recall, spaced repetition, or NCERT mapping techniques...' },
+  { key: 'comfortable_mentees', phase: 'Preferences', type: 'multi_choice', text: "Which NEET aspirants would you be most comfortable mentoring?", options: ['Dropper students', 'First-time test takers (Class 11/12)', 'Students aiming for top 100 ranks', 'Students struggling to pass', 'All types of students'] },
+  { key: 'daily_time_commitment', phase: 'Availability', type: 'single_choice', text: "How much time can you realistically dedicate each day at HelpMeMan?", options: ['Less than 1 hour', '1-2 hours', '3-4 hours', 'More than 4 hours'] },
+  { key: 'target_student_level', phase: 'Preferences', type: 'single_choice', text: "Which level of student are you most interested in mentoring based on your current qualifications?", options: ['NEET-UG aspirants (11th/12th/Droppers)', 'MBBS students preparing for PG entrance exams', 'Both levels'] },
+  { key: 'mbbs_specialization', phase: 'Expertise', type: 'multi_choice', text: "If mentoring MBBS students, which specific subjects or exam modules (e.g., NExT/NEET-PG strategy) are you best equipped to guide?", options: ['Clinical Subjects', 'Pre-clinical / Para-clinical Subjects', 'Exam Strategy & Time Management', 'Subject-wise Resource Guidance', 'Not applicable (I am only mentoring NEET-UG)'] },
+  { key: 'scenario_mbbs_guidance', phase: 'Mentoring Scenario', type: 'text', text: "How would you structure a guidance plan for an MBBS student struggling to balance clinical postings with PG preparation?", placeholder: 'Detail your time-blocking, ward-time utilization, and high-yield QBank schedule...' },
+];
+
+const JEE_QUESTIONS = [
+  { key: 'institution', phase: 'Background', type: 'text', text: "Which College or University did you attend or are currently studying at?", placeholder: 'Example: IIT Bombay, NIT Trichy, BITS Pilani, DTU' },
+  { key: 'branch_year', phase: 'Background', type: 'text', text: "What is your Branch / Specialization and your current year or graduation year?", placeholder: 'Example: Computer Science & Engineering, 3rd Year (Batch of 2026)' },
+  { key: 'current_status', phase: 'Background', type: 'single_choice', text: "What is your current status?", options: ['Engineering Student', 'Engineering Graduate', 'Working Professional', 'Teacher / Faculty', 'Other'] },
+  { key: 'exam_background', phase: 'Background', type: 'single_choice', text: "What is your JEE / engineering entrance examination background?", options: ['JEE Main', 'JEE Advanced', 'Both JEE Main & JEE Advanced', 'Other engineering entrance exam', 'Did not appear for JEE'] },
+  { key: 'exam_details', phase: 'Background', type: 'text', text: "If applicable, mention your JEE year and JEE Main percentile / JEE Advanced rank.", placeholder: 'Example: JEE Main 2022: 99.8 percentile, JEE Advanced 2022: AIR 412' },
+  { key: 'mentor_areas', phase: 'Expertise', type: 'multi_choice', text: "Which areas can you confidently mentor JEE aspirants in?", options: ['Physics', 'Chemistry', 'Mathematics', 'JEE Main strategy', 'JEE Advanced strategy', 'Study planning', 'Time management', 'Mock-test analysis', 'Exam strategy', 'Other'] },
+  { key: 'prior_experience', phase: 'Expertise', type: 'single_choice', text: "Have you previously taught, mentored, guided or coached students?", options: ['Yes, formally', 'Yes, informally', 'No, but I have guided peers', 'No previous experience'] },
+  { key: 'experience_details', phase: 'Expertise', type: 'text', text: "Briefly describe your mentoring or teaching experience. Mention who you mentored, approximate number of students, what you helped with and duration.", placeholder: 'Example: Mentored 20 JEE aspirants on Advanced Math problem-solving & exam strategy over 8 months.' },
+  { key: 'scenario_mock_scores', phase: 'Mentoring Scenario', type: 'text', text: "SCENARIO: A JEE aspirant says: 'I have studied for months, but my mock-test scores are not improving. I feel I am working hard but dont know what Im doing wrong.' How would you approach the student's first mentoring session?", placeholder: 'Describe your diagnostic approach, error log review, and strategy adjustment...' },
+  { key: 'scenario_main_vs_advanced', phase: 'Mentoring Scenario', type: 'text', text: "SCENARIO: A student is confused about whether to focus mainly on JEE Main or also prepare seriously for JEE Advanced. They are unsure about their current level. How would you help them decide?", placeholder: 'Explain your assessment method, syllabus coverage test, and dual-track preparation plan...' },
+  { key: 'comfortable_mentees', phase: 'Preferences', type: 'multi_choice', text: "Which JEE aspirants would you be most comfortable mentoring?", options: ['Class 9-10', 'Class 11', 'Class 12', 'Droppers', 'JEE Main-focused', 'JEE Advanced-focused', 'Students unsure about their preparation strategy'] },
+  { key: 'daily_time_commitment', phase: 'Availability', type: 'single_choice', text: "How much time can you realistically dedicate each day at HelpMeMan?", options: ['Less than 1 hour', '1-2 hours', '2-4 hours', 'More than 4 hours'] },
+];
+
+const LAW_QUESTIONS = [
+  { key: 'institution', phase: 'Background', type: 'text', text: "Which College / University and Course / Degree + Current Year or Graduation Year?", placeholder: 'Example: NLSIU Bengaluru, BA LLB (Hons), 4th Year (Batch of 2025)' },
+  { key: 'current_status', phase: 'Background', type: 'single_choice', text: "What is your current status?", options: ['Law Student', 'Law Graduate', 'Working Professional', 'Teacher / Faculty', 'Other'] },
+  { key: 'exam_background', phase: 'Background', type: 'single_choice', text: "What is your CLAT / law entrance examination background?", options: ['CLAT', 'AILET', 'Did not appear for a law entrance examination', 'Other'] },
+  { key: 'clat_score_rank', phase: 'Background', type: 'text', text: "What was your CLAT rank/score? If you appeared for multiple attempts, mention each performance.", placeholder: 'Example: CLAT 2022: AIR 85 (Score: 104.5), AILET 2022: AIR 32' },
+  { key: 'clat_prep_strategy', phase: 'Background', type: 'text', text: "Briefly describe your CLAT preparation strategy, including resources, study schedule, mock tests, and major strategies that helped you.", placeholder: 'Detail your newspaper reading routine, sectional mocks, and legal reasoning approach...' },
+  { key: 'prior_experience', phase: 'Expertise', type: 'single_choice', text: "Have you previously mentored or taught CLAT aspirants?", options: ['Yes, formally', 'Yes, informally / helped friends or juniors', 'No, but I have strong CLAT preparation experience', 'No previous experience'] },
+  { key: 'clat_sections', phase: 'Expertise', type: 'multi_choice', text: "Which CLAT sections are you most confident in mentoring students on?", options: ['English Language', 'Current Affairs & General Knowledge', 'Legal Reasoning', 'Logical Reasoning', 'Quantitative Techniques', 'Overall CLAT Strategy & Mock Analysis', 'Study Planning', 'Time Management', 'Mock-Test Analysis', 'Exam-Day Strategy', 'Other'] },
+  { key: 'experience_details', phase: 'Expertise', type: 'text', text: "Briefly describe your mentoring or teaching experience. Mention who you mentored, approximate number of students, what you helped with and duration.", placeholder: 'Example: Mentored 12 CLAT aspirants focusing on GK compendiums and Legal Reasoning speed...' },
+  { key: 'scenario_mock_scores', phase: 'Mentoring Scenario', type: 'text', text: "SCENARIO: A CLAT aspirant says: 'I have studied for months, but my mock-test scores are not improving. I feel I am working hard but don't know what I'm doing wrong.' How would you approach the student's first mentoring session?", placeholder: 'Explain your reading speed analysis, accuracy vs attempts breakdown, and mock analysis...' },
+  { key: 'scenario_gk_weakness', phase: 'Mentoring Scenario', type: 'text', text: "SCENARIO: A student is performing well in Legal Reasoning and Logical Reasoning but consistently struggles with Current Affairs and General Knowledge. How would you help them improve without affecting their preparation for other sections?", placeholder: 'Outline your daily GK routine, monthly compendium strategy, and time-allocation plan...' },
+  { key: 'comfortable_mentees', phase: 'Preferences', type: 'multi_choice', text: "Which Law aspirants would you be most comfortable mentoring?", options: ['Class 11', 'Class 12', 'Droppers', 'CLAT-focused aspirants', 'AILET / Other Law Entrance-focused aspirants', 'Students struggling with specific CLAT sections', 'Students unsure about their preparation strategy'] },
+  { key: 'daily_time_commitment', phase: 'Availability', type: 'single_choice', text: "How much time can you realistically dedicate each day to mentoring?", options: ['Less than 1 hour', '1-2 hours', '2-4 hours', 'More than 4 hours'] },
+];
+
+const CAREER_QUESTIONS = [
+  { key: 'current_role', phase: 'Background', type: 'text', text: "What is your Current Role / Profession?", placeholder: 'Example: Senior Product Manager at Tech Firm / Corporate Lawyer / Data Scientist' },
+  { key: 'educational_background', phase: 'Background', type: 'text', text: "What is your Educational Background? (Degree/Course, College/University, Specialization)", placeholder: 'Example: MBA in Marketing from IIM Ahmedabad / B.Tech from NIT Warangal' },
+  { key: 'mentor_areas', phase: 'Expertise', type: 'multi_choice', text: "Which career areas can you guide students in?", options: ['Engineering & Technology', 'Medicine & Healthcare', 'Law', 'Management & Business', 'Finance & Economics', 'Government Jobs / Civil Services', 'Research & Academia', 'Design & Creative Careers', 'Data Science / AI', 'Entrepreneurship', 'Defence & Armed Forces', 'Other'] },
+  { key: 'comfortable_mentees', phase: 'Preferences', type: 'multi_choice', text: "Which students are you most comfortable mentoring?", options: ['Classes 8–10', 'Classes 11–12', 'Entrance/competitive exam aspirants', 'College students', 'Final-year students', 'Fresh graduates', 'Students considering a career switch', 'Other'] },
+  { key: 'experience_years', phase: 'Background', type: 'single_choice', text: "How much professional/career experience do you have?", options: ['Less than 1 year', '1–3 years', '3–5 years', '5–10 years', '10+ years'] },
+  { key: 'guidance_types', phase: 'Expertise', type: 'multi_choice', text: "What kind of guidance can you provide?", options: ['Career exploration & career selection', 'Course/degree selection', 'College & higher-education guidance', 'Skill development & learning roadmap', 'Industry insights', 'Internship & early-career guidance', 'Resume/CV guidance', 'Interview preparation', 'Career transition guidance', 'Long-term career planning', 'Other'] },
+  { key: 'career_journey', phase: 'Background', type: 'text', text: "Briefly describe your career journey and what makes you qualified to guide students.", placeholder: 'Share key achievements, industry roles, and insights gained along your career path...' },
+  { key: 'motivation', phase: 'Mentoring style', type: 'text', text: "What motivates you to mentor students through HelpMeMan?", placeholder: 'What drives your passion for helping students succeed?' },
+  { key: 'scenario_confused_student', phase: 'Mentoring Scenario', type: 'text', text: "How would you approach a student who is confused about which career path to choose?", placeholder: 'Describe your diagnostic framework, interest-mapping, and career exploration strategy...' },
+  { key: 'biggest_mistakes', phase: 'Mentoring Scenario', type: 'text', text: "What do you think is one of the biggest mistakes students make while choosing a career?", placeholder: 'Share common pitfalls like peer pressure, superficial research, or lack of self-awareness...' },
+  { key: 'daily_time_commitment', phase: 'Availability', type: 'single_choice', text: "How much time can you realistically dedicate to mentoring?", options: ['Less than 1 hour/day', '1-2 hours/day', '2–4 hours/day', '4+ hours/day', 'Flexible depending on availability'] },
+  { key: 'mentoring_goals', phase: 'Personal', type: 'text', text: "What are you hoping to achieve through mentoring on HelpMeMan?", placeholder: 'Sharing knowledge, networking, giving back to community...' },
+];
+
+function getTrackQuestions(track = '') {
+  if (track.includes('NEET') || track.includes('Medical')) return MEDICAL_QUESTIONS;
+  if (track.includes('JEE') || track.includes('Engineering')) return JEE_QUESTIONS;
+  if (track.includes('Law') || track.includes('CLAT')) return LAW_QUESTIONS;
+  if (track.includes('Career')) return CAREER_QUESTIONS;
+  return MEDICAL_QUESTIONS;
+}
+
+function getQuestionList(answers = []) {
+  const byKey = answersByKey(answers);
+  const track = byKey.mentor_track;
+  if (!track) return BASE_QUESTIONS;
+  return [...BASE_QUESTIONS, ...getTrackQuestions(track)];
+}
 
 function tinyEmbedding(text, dimensions = 64) {
   const vector = Array(dimensions).fill(0);
@@ -111,28 +128,16 @@ function answersByKey(answers = []) {
 }
 
 function getQuestion(index, answers = []) {
-  const base = QUESTIONS[index];
+  const list = getQuestionList(answers);
+  const base = list[index];
   if (!base) return null;
 
   const byKey = answersByKey(answers);
-  const preferredName = byKey.preferred_name || byKey.full_name?.split(' ')[0] || '';
-  const roleType = byKey.role_type;
+  const preferredName = (byKey.full_name || '').split(' ')[0] || '';
   const question = { ...base };
 
-  if (question.key === 'role_company' && roleType && roleType !== 'Other') {
-    question.text = `${preferredName ? `${preferredName}, ` : ''}where are you doing your ${roleType.toLowerCase()} work right now?`;
-  }
-  if (question.key === 'topics' && byKey.skills) {
-    question.text = `Nice — ${byKey.skills} gives me a signal. What specific topics can you mentor people in?`;
-  }
-  if (question.key === 'journey' && roleType) {
-    question.text = `How did you become the kind of ${roleType.toLowerCase()} mentor someone would learn from?`;
-  }
-  if (question.key === 'why_mentor' && byKey.achievement) {
-    question.text = 'That achievement has a story behind it. Why do you want to mentor others now?';
-  }
-  if (question.key === 'personal' && byKey.preferred_mentees) {
-    question.text = `Beautiful. To help me match you with ${byKey.preferred_mentees.toLowerCase()}, what motivates you outside work?`;
+  if (question.key === 'institution' && preferredName) {
+    question.text = `Great to meet you, ${preferredName}. ${base.text}`;
   }
 
   return question;
@@ -148,13 +153,14 @@ async function getState(userId) {
 
   const answers = onboarding?.answers || [];
   const index = onboarding?.currentQuestion || 0;
+  const list = getQuestionList(answers);
   const status = onboarding?.completed ? 'COMPLETED' : (user?.onboardingRole ? 'IN_PROGRESS' : 'NOT_STARTED');
 
   return {
     role: user?.onboardingRole,
     status,
     currentQuestion: index,
-    totalQuestions: QUESTIONS.length,
+    totalQuestions: list.length,
     question: getQuestion(index, answers),
     answers,
     messages: onboarding?.messages || [],
@@ -177,7 +183,7 @@ async function selectRole(userId, role) {
     const firstQuestionMsg = {
       id: `msg_q0`,
       sender: 'RUTH',
-      text: QUESTIONS[0].text,
+      text: BASE_QUESTIONS[0].text,
       createdAt: new Date().toISOString(),
     };
 
@@ -202,21 +208,14 @@ async function humanTransition(question, answer, nextQuestion, priorAnswers) {
   try {
     const client = new Groq({ apiKey: config.groq.apiKey });
     const context = priorAnswers.slice(-4).map(a => `${a.question}: ${a.answer}`).join('\n');
-    const prompt = `You are Ruth, a warm, perceptive AI onboarding assistant for mentors on HelpMeMan. A mentor just answered:
+    const prompt = `You are Ruth, a warm, perceptive AI onboarding assistant for mentors on HelpMeMan. A mentor candidate just answered:
 Question: ${question.text}
 Answer: ${answer}
 
 Recent context:
 ${context || '(none)'}
 
-SPECIAL INSTRUCTION FOR MULTI-DOMAIN ACADEMIC & PROFESSIONAL BACKGROUNDS:
-- **Gym & Fitness Coaches / Trainers**: If the mentor mentions Fitness, Gym, Bodybuilding, Workout, Strength Training, Fat Loss, or Hypertrophy, acknowledge their fitness journey warmly and probe key details (e.g., years training, areas of expertise like Fat Loss/Muscle Gain, target coaching clientele, biggest beginner mistakes they fix, diet/nutrition assistance, expected client results, and pre-session advice).
-- **Lawyers / Legal**: If the mentor mentions Law, CLAT, Bar Council enrollment, NLU, Advocate, or Court practice, acknowledge their legal credentials warmly and probe key details (e.g. Bar enrollment, Court practice, corporate law, or CLAT strategy).
-- **Doctors / Medical Students**: If the mentor mentions MBBS, NEET rank, AIIMS/MAMC, Medical Council / NMC registration, or medical specialization, acknowledge their medical journey and probe key details (e.g. NEET AIR rank, medical college, or dropper strategy).
-- **Nutritionists / Health Counselors**: If the mentor mentions Diet, Clinical Nutrition, Doctor / MBBS health guide, or wellness practice, acknowledge their clinical background and probe key diet/health specialization areas.
-- **Tech / Engineering**: If the mentor mentions B.Tech, IIT/NIT, FAANG, SDE, or JEE, acknowledge their engineering background and probe key details (e.g. JEE rank, dropper year, or tech stack).
-
-Write a natural response of at most 35 words. Briefly acknowledge one specific detail from their answer, then smoothly ask this exact next question: "${nextQuestion.text}". No headings, no generic boilerplate.`;
+Write a natural response of at most 35 words. Briefly acknowledge one specific detail from their answer (e.g. their rank, institution, career path, or scenario approach), then smoothly ask this exact next question: "${nextQuestion.text}". No headings, no generic boilerplate.`;
     const groqCall = client.chat.completions.create({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.65, max_tokens: 100 });
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Groq API request timed out')), 3500));
     const result = await Promise.race([groqCall, timeout]);
@@ -227,25 +226,24 @@ Write a natural response of at most 35 words. Briefly acknowledge one specific d
   }
 }
 
-function detectCategorySlug(text = '') {
+function detectCategorySlug(text = '', track = '') {
+  if (track.includes('NEET') || track.includes('Medical')) return 'medical-neet';
+  if (track.includes('JEE') || track.includes('Engineering')) return 'jee-neet-prep';
+  if (track.includes('Law') || track.includes('CLAT')) return 'law';
+  if (track.includes('Career')) return 'general-mentorship';
+
   const lower = text.toLowerCase();
-  if (lower.includes('law') || lower.includes('clat') || lower.includes('legal') || lower.includes('advocate') || lower.includes('nlu') || lower.includes('court') || lower.includes('litigation')) {
+  if (lower.includes('law') || lower.includes('clat') || lower.includes('legal') || lower.includes('advocate') || lower.includes('nlu') || lower.includes('court')) {
     return 'law';
   }
-  if (lower.includes('diet') || lower.includes('nutrition') || lower.includes('health') || lower.includes('fitness') || lower.includes('gym') || lower.includes('workout') || lower.includes('wellness') || lower.includes('doctor') || lower.includes('clinical') || lower.includes('lifestyle')) {
-    return 'health-nutrition';
-  }
-  if (lower.includes('neet') || lower.includes('mbbs') || lower.includes('aiims') || lower.includes('medical') || lower.includes('mamc') || lower.includes('jipmer') || lower.includes('kgmu')) {
+  if (lower.includes('neet') || lower.includes('mbbs') || lower.includes('aiims') || lower.includes('medical') || lower.includes('bds')) {
     return 'medical-neet';
   }
-  if (lower.includes('jee') || lower.includes('iit') || lower.includes('nit') || lower.includes('engineering prep')) {
+  if (lower.includes('jee') || lower.includes('iit') || lower.includes('nit') || lower.includes('engineering')) {
     return 'jee-neet-prep';
   }
-  if (lower.includes('faang') || lower.includes('software') || lower.includes('coding') || lower.includes('dsa') || lower.includes('developer') || lower.includes('b.tech') || lower.includes('tech')) {
+  if (lower.includes('faang') || lower.includes('software') || lower.includes('coding') || lower.includes('dsa') || lower.includes('developer')) {
     return 'faang';
-  }
-  if (lower.includes('startup') || lower.includes('founder') || lower.includes('y combinator')) {
-    return 'startup';
   }
   return 'general-mentorship';
 }
@@ -254,25 +252,37 @@ async function summarize(userId) {
   const onboarding = await prisma.mentorOnboarding.findUnique({ where: { userId } });
   const answers = (onboarding?.answers || []).filter(a => !a.skipped);
   const transcript = answers.map(a => `${a.questionKey}: ${a.answer}`).join('\n');
+  const byKey = answersByKey(answers);
+  const track = byKey.mentor_track || '';
   let result;
+
   const fallbackProfile = () => {
-    const byKey = answersByKey(answers);
+    const firstName = (byKey.full_name || '').split(' ')[0] || byKey.full_name;
+    const areas = (byKey.mentor_areas || byKey.clat_sections || byKey.guidance_types || '').split(',').map(s => s.trim()).filter(Boolean);
+    const mbbsMods = (byKey.mbbs_specialization || '').split(',').map(s => s.trim()).filter(Boolean);
+    const allSkills = [...new Set([...areas, ...mbbsMods])];
+
     return {
       name: byKey.full_name,
-      preferredName: byKey.preferred_name,
-      role: byKey.role_company,
-      location: byKey.location,
-      skills: (byKey.skills || byKey.topics || '').split(',').map(s => s.trim()).filter(Boolean),
-      bio: byKey.journey || transcript.slice(0, 500),
-      mentoringStyle: { approach: byKey.mentoring_style || '', motivation: byKey.why_mentor || '' },
-      goals: byKey.personal || '',
-      summary: byKey.focus || byKey.journey || '',
-      expertiseTags: (byKey.topics || byKey.skills || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 8),
+      preferredName: firstName,
+      role: byKey.current_role || `${byKey.current_status || 'Mentor'} (${byKey.branch_year || track})`,
+      company: byKey.institution || byKey.educational_background || 'HelpMeMan Network',
+      location: 'India',
+      skills: allSkills.length > 0 ? allSkills : [track || 'Mentorship & Strategy'],
+      bio: `${track || 'Mentor'} from ${byKey.institution || byKey.educational_background || 'HelpMeMan'}. Background: ${byKey.exam_background || byKey.exam_details || byKey.career_journey || 'Experienced Guide'}.`,
+      mentoringStyle: {
+        scenarioApproach: byKey.scenario_mock_scores || byKey.scenario_confused_student || '',
+        retentionOrStrategy: byKey.scenario_biology_retention || byKey.scenario_main_vs_advanced || byKey.scenario_gk_weakness || '',
+        guidancePlan: byKey.scenario_mbbs_guidance || byKey.career_journey || '',
+      },
+      goals: byKey.target_student_level || byKey.mentoring_goals || 'Student Mentorship & Guidance',
+      summary: `${track || 'Mentor'} (${byKey.current_status || 'Specialist'}). Areas: ${allSkills.slice(0, 4).join(', ')}. Availability: ${byKey.daily_time_commitment || '1-2 hours/day'}.`,
+      expertiseTags: allSkills.slice(0, 8),
       personality: {
-        communication_style: 'Thoughtful',
-        mentoring_style: byKey.mentoring_style || 'Personalized',
-        experience_level: byKey.experience || 'Experienced',
-        preferred_mentees: byKey.preferred_mentees || 'Curious learners',
+        communication_style: 'Empathetic & Structured',
+        mentoring_style: 'Domain-tailored & Strategic',
+        experience_level: byKey.experience_years || byKey.prior_experience || 'Experienced Mentor',
+        preferred_mentees: byKey.comfortable_mentees || 'Aspirants & Students',
       },
     };
   };
@@ -280,7 +290,13 @@ async function summarize(userId) {
   if (config.groq.apiKey) {
     try {
       const client = new Groq({ apiKey: config.groq.apiKey });
-      const prompt = `Create a professional multi-domain mentor profile from these onboarding answers. Extract domain specializations (e.g. Gym & Fitness Training, Fat Loss & Hypertrophy, NEET UG Strategy, Clinical Nutrition, Bar Council / Court Litigation, FAANG Tech) and any professional credentials/licenses or achievements mentioned (e.g. Certifications, Bar Council ID, Medical Registration No., AIIMS/JEE Rank).
+      const prompt = `Create a professional mentor profile from these domain-specific onboarding answers (${track}).
+Extract:
+- Full Name, Institution/College, Role/Background, Current Status
+- Entrance exam scores/ranks (NEET, JEE, CLAT, etc.) or Professional experience
+- Subject expertise & mentoring areas
+- Scenario responses & diagnostic methodology
+- Target mentee profiles, daily commitment, and motivation.
 
 Return valid JSON only with keys:
 name, preferredName, role, company, location, skills (array), experienceYears (integer or null), bio (80-120 words), mentoringStyle (object), goals (string), summary (string), expertiseTags (max 8 array), personality (object with communication_style, mentoring_style, experience_level, preferred_mentees, domain_credentials).\n\n${transcript}`;
@@ -297,7 +313,7 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
   }
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  const detectedSlug = detectCategorySlug(`${transcript} ${result.role || ''} ${result.company || ''} ${(result.skills || []).join(' ')}`);
+  const detectedSlug = detectCategorySlug(transcript, track);
   let category = await prisma.category.findUnique({ where: { slug: detectedSlug } });
   if (!category) {
     category = await prisma.category.upsert({
@@ -307,79 +323,79 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
     });
   }
 
-    // Parse location
-    let country = 'India';
-    let state = '';
-    let city = '';
-    const locStr = result.location || '';
-    if (locStr) {
-      const parts = locStr.split(',').map(s => s.trim());
-      if (parts.length >= 2) {
-        city = parts[0];
-        country = parts[parts.length - 1];
-        state = parts.length === 3 ? parts[1] : '';
-      } else {
-        city = locStr;
-      }
+  let country = 'India';
+  let state = '';
+  let city = '';
+  const locStr = result.location || '';
+  if (locStr) {
+    const parts = locStr.split(',').map(s => s.trim());
+    if (parts.length >= 2) {
+      city = parts[0];
+      country = parts[parts.length - 1];
+      state = parts.length === 3 ? parts[1] : '';
+    } else {
+      city = locStr;
     }
+  }
 
-    await prisma.$transaction([
-      prisma.mentorProfile.update({
-        where: { mentorId: userId },
-        data: {
-          ...result,
-          skills: result.skills || [],
-          expertiseTags: result.expertiseTags || [],
-          onboardingStatus: 'COMPLETED',
-          completedAt: new Date(),
-          currentQuestion: QUESTIONS.length,
-        },
-      }),
-      prisma.mentorMemory.create({ data: { mentorId: userId, content: transcript, metadata: { type: 'onboarding_transcript', answerCount: answers.length }, embedding: tinyEmbedding(transcript) } }),
-      prisma.mentor.upsert({
-        where: { userId },
-        update: {
-          displayName: result.preferredName || result.name || user.name,
-          bio: result.bio || '',
-          currentRole: result.role || null,
-          company: result.company || null,
-          expertise: result.expertiseTags || result.skills || [],
-          location: result.location || null,
-          country,
-          state: state || null,
-          city,
-          experienceYears: result.experienceYears || null,
-        },
-        create: {
-          userId,
-          displayName: result.preferredName || result.name || user.name,
-          bio: result.bio || '',
-          institutionType: 'COMPANY',
-          institutionName: result.company || 'Independent',
-          institutionEmail: user.email,
-          currentRole: result.role || null,
-          company: result.company || null,
-          expertise: result.expertiseTags || result.skills || [],
-          categoryId: category.id,
-          pricePerSession: 0,
-          sessionDuration: 30,
-          location: result.location || null,
-          country,
-          state: state || null,
-          city,
-          activeStatus: 'Active this week',
-          averageResponseTime: '1 day',
-          languages: ['English'],
-          experienceYears: result.experienceYears || null,
-        },
-      }),
-      prisma.mentorOnboarding.update({
-        where: { userId },
-        data: { completed: true, currentQuestion: QUESTIONS.length },
-      }),
-    ]);
+  const list = getQuestionList(answers);
 
-  // Trigger email notifications
+  await prisma.$transaction([
+    prisma.mentorProfile.update({
+      where: { mentorId: userId },
+      data: {
+        ...result,
+        skills: result.skills || [],
+        expertiseTags: result.expertiseTags || [],
+        onboardingStatus: 'COMPLETED',
+        completedAt: new Date(),
+        currentQuestion: list.length,
+      },
+    }),
+    prisma.mentorMemory.create({ data: { mentorId: userId, content: transcript, metadata: { type: 'onboarding_transcript', answerCount: answers.length, track }, embedding: tinyEmbedding(transcript) } }),
+    prisma.mentor.upsert({
+      where: { userId },
+      update: {
+        displayName: result.preferredName || result.name || user.name,
+        bio: result.bio || '',
+        currentRole: result.role || null,
+        company: result.company || null,
+        expertise: result.expertiseTags || result.skills || [],
+        location: result.location || null,
+        country,
+        state: state || null,
+        city,
+        experienceYears: result.experienceYears || null,
+      },
+      create: {
+        userId,
+        displayName: result.preferredName || result.name || user.name,
+        bio: result.bio || '',
+        institutionType: 'COMPANY',
+        institutionName: result.company || 'Independent',
+        institutionEmail: user.email,
+        currentRole: result.role || null,
+        company: result.company || null,
+        expertise: result.expertiseTags || result.skills || [],
+        categoryId: category.id,
+        pricePerSession: 0,
+        sessionDuration: 30,
+        location: result.location || null,
+        country,
+        state: state || null,
+        city,
+        activeStatus: 'Active this week',
+        averageResponseTime: '1 day',
+        languages: ['English'],
+        experienceYears: result.experienceYears || null,
+      },
+    }),
+    prisma.mentorOnboarding.update({
+      where: { userId },
+      data: { completed: true, currentQuestion: list.length },
+    }),
+  ]);
+
   try {
     const { sendMentorUnderReviewEmail, sendMentorApplicationToAdminEmail } = require('./email.service');
     sendMentorUnderReviewEmail(user).catch(err => console.error('[ONBOARDING] Failed to send mentor review email:', err.message));
@@ -410,6 +426,8 @@ async function answer(userId, answerText, skip = false) {
     skipped: skip,
   };
   const updatedAnswers = [...state.answers, newAnswer];
+  const list = getQuestionList(updatedAnswers);
+  const nextIndex = state.currentQuestion + 1;
 
   const userMsg = {
     id: `msg_u_${Date.now()}`,
@@ -418,9 +436,7 @@ async function answer(userId, answerText, skip = false) {
     createdAt: new Date().toISOString(),
   };
 
-  const nextIndex = state.currentQuestion + 1;
-
-  if (nextIndex >= QUESTIONS.length) {
+  if (nextIndex >= list.length) {
     const finalMsg = {
       id: `msg_r_${Date.now()}`,
       sender: 'RUTH',
@@ -516,9 +532,9 @@ async function answer(userId, answerText, skip = false) {
 
   return {
     role: state.role,
-    status: nextIndex >= QUESTIONS.length ? 'COMPLETED' : 'IN_PROGRESS',
+    status: nextIndex >= list.length ? 'COMPLETED' : 'IN_PROGRESS',
     currentQuestion: nextIndex,
-    totalQuestions: QUESTIONS.length,
+    totalQuestions: list.length,
     question: nextQuestion,
     answers: updatedAnswers,
     messages: [...(onboarding?.messages || []), userMsg, ruthMsg],
@@ -528,4 +544,13 @@ async function answer(userId, answerText, skip = false) {
   };
 }
 
-module.exports = { QUESTIONS, getState, selectRole, answer };
+module.exports = {
+  BASE_QUESTIONS,
+  MEDICAL_QUESTIONS,
+  JEE_QUESTIONS,
+  LAW_QUESTIONS,
+  CAREER_QUESTIONS,
+  getState,
+  selectRole,
+  answer,
+};
