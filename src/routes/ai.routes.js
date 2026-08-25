@@ -1,14 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate } = require('../middleware/auth');
+const { authenticate, optionalAuth } = require('../middleware/auth');
 const { generalLimiter } = require('../middleware/rateLimiter');
 const ai = require('../controllers/ai.controller');
 
-router.use(authenticate);
+// Chat routes - public & authenticated support
+router.post('/chat', generalLimiter, optionalAuth, ai.chatWithAI);
+router.post('/chat/stream', generalLimiter, optionalAuth, ai.chatWithAIStream);
 
-// Chat
-router.post('/chat', generalLimiter, ai.chatWithAI);
-router.post('/chat/stream', generalLimiter, ai.chatWithAIStream);
+// Protected routes (Sessions, Meetings, Clear)
+router.use(authenticate);
 router.post('/clear', ai.clearChat); // legacy
 
 // Sessions

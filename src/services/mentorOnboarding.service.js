@@ -2,7 +2,7 @@ const Groq = require('groq-sdk');
 const prisma = require('../config/prisma');
 const config = require('../config/env');
 
-const MODEL = 'llama-3.1-8b-instant';
+const MODEL = 'openai/gpt-oss-120b';
 
 const BASE_QUESTIONS = [
   {
@@ -338,7 +338,9 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
     }
   }
 
-  const list = getQuestionList(answers);
+  const list = typeof getQuestionList === 'function' ? getQuestionList(answers) : (typeof QUESTIONS !== 'undefined' ? QUESTIONS : []);
+  const existingProfile = await prisma.mentorProfile.findUnique({ where: { mentorId: userId } });
+  const isEmailAlreadySent = existingProfile?.onboardingStatus === 'COMPLETED_EMAIL_SENT';
 
   await prisma.$transaction([
     prisma.mentorProfile.update({
@@ -347,8 +349,8 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
         ...result,
         skills: result.skills || [],
         expertiseTags: result.expertiseTags || [],
-        onboardingStatus: 'COMPLETED',
-        completedAt: new Date(),
+        onboardingStatus: isEmailAlreadySent ? 'COMPLETED_EMAIL_SENT' : 'COMPLETED',
+        completedAt: existingProfile?.completedAt || new Date(),
         currentQuestion: list.length,
       },
     }),
@@ -396,15 +398,68 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
     }),
   ]);
 
-  try {
-    const { sendMentorUnderReviewEmail, sendMentorApplicationToAdminEmail } = require('./email.service');
-    sendMentorUnderReviewEmail(user).catch(err => console.error('[ONBOARDING] Failed to send mentor review email:', err.message));
-    sendMentorApplicationToAdminEmail(user, answers).catch(err => console.error('[ONBOARDING] Failed to send admin notification email:', err.message));
-  } catch (err) {
-    console.error('[ONBOARDING] Email dispatch setup failed:', err.message);
+  // Check Mentorship Onboarding Status to determine if checkmark/confirmation mail has been sent
+  if (!isEmailAlreadySent) {
+    try {
+      const { sendMentorUnderReviewEmail, sendMentorApplicationToAdminEmail } = require('./email.service');
+      await sendMentorUnderReviewEmail(user).catch(err => console.error('[ONBOARDING] Failed to send mentor review email:', err.message));
+      await sendMentorApplicationToAdminEmail(user, answers).catch(err => console.error('[ONBOARDING] Failed to send admin notification email:', err.message));
+      
+      // Update Mentorship Onboarding Status to confirm email has been sent
+      await prisma.mentorProfile.update({
+        where: { mentorId: userId },
+        data: { onboardingStatus: 'COMPLETED_EMAIL_SENT' },
+      });
+      console.log(`[ONBOARDING] ✅ Checkmark/confirmation mail sent and status updated to COMPLETED_EMAIL_SENT for ${user.email}`);
+    } catch (err) {
+      console.error('[ONBOARDING] Email dispatch setup failed:', err.message);
+    }
+  } else {
+    console.log(`[ONBOARDING] ℹ️ Mentorship Onboarding Status confirms checkmark email already sent for ${user.email}. Skipping duplicate.`);
+  }
   }
 
   return getState(userId);
+}
+
+async function checkAndSendConfirmationEmail(userId) {
+  const [user, profile, onboarding] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId } }),
+    prisma.mentorProfile.findUnique({ where: { mentorId: userId } }),
+    prisma.mentorOnboarding.findUnique({ where: { userId } }),
+  ]);
+
+  if (!user) return { sent: false, reason: 'User not found' };
+
+  // Check Mentorship Onboarding Status
+  const isCompleted = Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED' || profile?.onboardingStatus === 'COMPLETED_EMAIL_SENT');
+  const alreadySent = profile?.onboardingStatus === 'COMPLETED_EMAIL_SENT';
+
+  if (!isCompleted) {
+    return { sent: false, reason: 'Onboarding not completed yet' };
+  }
+
+  if (alreadySent) {
+    return { sent: false, reason: 'Checkmark email already sent according to Mentorship Onboarding Status' };
+  }
+
+  try {
+    const { sendMentorUnderReviewEmail, sendMentorApplicationToAdminEmail } = require('./email.service');
+    const answers = (onboarding?.answers || []).filter(a => !a.skipped);
+
+    await sendMentorUnderReviewEmail(user);
+    await sendMentorApplicationToAdminEmail(user, answers);
+
+    await prisma.mentorProfile.update({
+      where: { mentorId: userId },
+      data: { onboardingStatus: 'COMPLETED_EMAIL_SENT' },
+    });
+
+    return { sent: true };
+  } catch (err) {
+    console.error('[ONBOARDING] Error sending confirmation email in checkAndSendConfirmationEmail:', err.message);
+    return { sent: false, error: err.message };
+  }
 }
 
 async function answer(userId, answerText, skip = false) {
@@ -545,12 +600,14 @@ async function answer(userId, answerText, skip = false) {
 }
 
 module.exports = {
-  BASE_QUESTIONS,
-  MEDICAL_QUESTIONS,
-  JEE_QUESTIONS,
-  LAW_QUESTIONS,
-  CAREER_QUESTIONS,
+  BASE_QUESTIONS: typeof BASE_QUESTIONS !== 'undefined' ? BASE_QUESTIONS : [],
+  MEDICAL_QUESTIONS: typeof MEDICAL_QUESTIONS !== 'undefined' ? MEDICAL_QUESTIONS : [],
+  JEE_QUESTIONS: typeof JEE_QUESTIONS !== 'undefined' ? JEE_QUESTIONS : [],
+  LAW_QUESTIONS: typeof LAW_QUESTIONS !== 'undefined' ? LAW_QUESTIONS : [],
+  CAREER_QUESTIONS: typeof CAREER_QUESTIONS !== 'undefined' ? CAREER_QUESTIONS : [],
+  QUESTIONS: typeof QUESTIONS !== 'undefined' ? QUESTIONS : (typeof BASE_QUESTIONS !== 'undefined' ? BASE_QUESTIONS : []),
   getState,
   selectRole,
   answer,
+  checkAndSendConfirmationEmail,
 };

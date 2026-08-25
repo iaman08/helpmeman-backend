@@ -447,7 +447,7 @@ Synthesize a high-impact, 3-bullet briefing summary for the mentor to read in 10
 ⏱️ **Recommended Session Roadmap**: [Quick timing breakdown for the ${booking.durationMinutes}-min session]`;
 
     const groqCall = client.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
       max_tokens: 300,

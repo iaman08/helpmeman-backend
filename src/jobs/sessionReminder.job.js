@@ -43,53 +43,61 @@ function initReminderQueue(redisUrl) {
           where: { id: job.data.bookingId },
           include: { user: true, mentor: { include: { user: true } } },
         });
-          // Standard session reminder for mentor
+        if (!booking) return;
+
+        // Standard session reminder for mentor
+        if (booking.mentor?.user) {
           await sendNotificationEmail({
             user: booking.mentor.user,
             title: 'Session in 1 hour',
             body: 'Your mentorship session starts in one hour.',
             type: 'SESSION_REMINDER',
-          });
+          }).catch((e) => console.error('[Mentor Session Reminder Email Error]:', e.message));
+        }
 
-          // Mentee intake reminder check
-          if (!booking.intakeAnswers) {
+        // Mentee intake reminder check
+        if (!booking.intakeAnswers) {
+          if (booking.user) {
             await sendNotificationEmail({
               user: booking.user,
               title: '⚡ Action Required: Fill your Pre-Session Prerequisites',
-              body: `Your session with ${booking.mentor.displayName} starts in 1 hour! Please complete your 1-minute pre-session form so your mentor can prepare.`,
+              body: `Your session with ${booking.mentor?.displayName || 'your mentor'} starts in 1 hour! Please complete your 1-minute pre-session form so your mentor can prepare.`,
               type: 'INTAKE_REMINDER',
             }).catch((e) => console.error('[Intake Reminder Email Error]:', e.message));
+          }
 
-            await sendNotification({
-              userId: booking.userId,
-              type: 'INTAKE_REMINDER',
-              title: '⚡ 1 Hour Until Session: Fill Prerequisites',
-              body: `Please submit your consultation goals & questions so ${booking.mentor.displayName} can review your AI briefing card before joining!`,
-              metadata: { bookingId: booking.id },
-            }).catch((e) => console.error('[Intake Reminder Push Error]:', e.message));
-          } else {
+          await sendNotification({
+            userId: booking.userId,
+            type: 'INTAKE_REMINDER',
+            title: '⚡ 1 Hour Until Session: Fill Prerequisites',
+            body: `Please submit your consultation goals & questions so ${booking.mentor?.displayName || 'your mentor'} can review your AI briefing card before joining!`,
+            metadata: { bookingId: booking.id },
+          }).catch((e) => console.error('[Intake Reminder Push Error]:', e.message));
+          if (booking.user) {
             await sendNotificationEmail({
               user: booking.user,
               title: 'Session in 1 hour',
               body: 'Your mentorship session starts in one hour.',
               type: 'SESSION_REMINDER',
-            });
+            }).catch((e) => console.error('[User Session Reminder Email Error]:', e.message));
           }
+        }
 
-          await sendNotification({
-            userId: booking.userId,
-            type: 'SESSION_REMINDER',
-            title: 'Session in 1 hour',
-            body: 'Your session starts soon!',
-            sendEmail: false,
-          });
-          await sendNotification({
-            mentorId: booking.mentorId,
-            type: 'SESSION_REMINDER',
-            title: 'Session in 1 hour',
-            body: 'Your session starts soon!',
-            sendEmail: false,
-          });
+        await sendNotification({
+          userId: booking.userId,
+          type: 'SESSION_REMINDER',
+          title: 'Session in 1 hour',
+          body: 'Your session starts soon!',
+          sendEmail: false,
+        }).catch((e) => console.error('[User Session Reminder Push Error]:', e.message));
+
+        await sendNotification({
+          mentorId: booking.mentorId,
+          type: 'SESSION_REMINDER',
+          title: 'Session in 1 hour',
+          body: 'Your session starts soon!',
+          sendEmail: false,
+        }).catch((e) => console.error('[Mentor Session Reminder Push Error]:', e.message));
       }, { connection });
 
       worker.on('error', err => {
