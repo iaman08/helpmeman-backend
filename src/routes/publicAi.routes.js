@@ -16,7 +16,7 @@ const demoLimiter = rateLimit({
 });
 
 let groqClient = null;
-const MODEL = 'llama-3.3-70b-versatile';
+const MODEL = 'openai/gpt-oss-120b';
 
 function getClient() {
   if (!config.groq.apiKey) throw new Error('GROQ_API_KEY not configured');

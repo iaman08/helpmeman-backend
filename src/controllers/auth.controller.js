@@ -200,7 +200,10 @@ async function verifySignupOTP(req, res) {
     } catch (e) {}
 
     try {
-      await sendWelcomeEmail(user);
+      // Only send student welcome email for students; mentors receive checkmark mail based on Mentorship Onboarding Status
+      if (user.role !== 'MENTOR' && user.onboardingRole !== 'MENTOR') {
+        await sendWelcomeEmail(user);
+      }
       await sendNotification({
         userId: user.id,
         type: 'ACCOUNT_UPDATE',

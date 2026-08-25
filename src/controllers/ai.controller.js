@@ -11,8 +11,8 @@ async function chatWithAI(req, res) {
       return res.status(400).json({ error: 'Message too long (max 2000 characters)' });
     }
 
-    const userId = req.user.id;
-    const userName = req.user.name || 'Student';
+    const userId = req.user?.id || null;
+    const userName = req.user?.name || 'Visitor';
 
     const result = await aiService.chat(userId, userName, message.trim(), sessionId || null, !!ruthlessMode);
     res.json(result);
@@ -39,8 +39,8 @@ async function chatWithAIStream(req, res) {
       return res.status(400).json({ error: 'Message too long (max 2000 characters)' });
     }
 
-    const userId = req.user.id;
-    const userName = req.user.name || 'Student';
+    const userId = req.user?.id || null;
+    const userName = req.user?.name || 'Visitor';
 
     // chatStream handles SSE headers and writing directly to res
     await aiService.chatStream(userId, userName, message.trim(), sessionId || null, res, !!ruthlessMode);

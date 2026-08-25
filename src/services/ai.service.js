@@ -4,7 +4,8 @@ const config = require('../config/env');
 
 
 let groqClient = null;
-const MODEL = 'llama-3.3-70b-versatile';
+const MODEL = 'openai/gpt-oss-120b';
+const FALLBACK_MODELS = ['openai/gpt-oss-20b', 'qwen/qwen3.6-27b', 'groq/compound'];
 
 function getClient() {
   if (!config.groq.apiKey) throw new Error('GROQ_API_KEY not configured');
@@ -644,26 +645,41 @@ async function resumeSession(sessionId, userId) {
 async function chat(userId, userName, message, sessionId, ruthlessMode = false) {
   const client = getClient();
 
-  let session;
-  if (sessionId) {
-    session = await prisma.aiSession.findFirst({ where: { id: sessionId, userId } });
+  let session = null;
+  if (userId) {
+    if (sessionId && !sessionId.startsWith('guest_')) {
+      session = await prisma.aiSession.findFirst({ where: { id: sessionId, userId } }).catch(() => null);
+    }
+    if (!session) {
+      session = await prisma.aiSession.create({ data: { userId } }).catch(() => null);
+    }
   }
+
+  // Guest / fallback session
   if (!session) {
-    session = await prisma.aiSession.create({ data: { userId } });
+    session = {
+      id: sessionId || `guest_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      summary: null,
+      messageCount: 0,
+      sessionType: 'general',
+      bookingId: null,
+    };
   }
 
   const hasExplicitMentorRequest = isExplicitMentorRequest(message);
 
   const parallelJobs = [
-    getUserMemory(userId),
-    getPlatformContext(),
-    prisma.aiMessage.findMany({
-      where: { sessionId: session.id },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 10,
-      select: { role: true, content: true },
-    }).then(rows => rows.reverse()),
-    hasExplicitMentorRequest ? searchMentorsForChat(message) : Promise.resolve(null),
+    userId ? getUserMemory(userId).catch(() => null) : Promise.resolve(null),
+    getPlatformContext().catch(() => ({ totalMentors: 0, categories: [], topMentors: [] })),
+    userId && session.id && !session.id.startsWith('guest_')
+      ? prisma.aiMessage.findMany({
+          where: { sessionId: session.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 10,
+          select: { role: true, content: true },
+        }).then(rows => rows.reverse()).catch(() => [])
+      : Promise.resolve([]),
+    hasExplicitMentorRequest ? searchMentorsForChat(message).catch(() => null) : Promise.resolve(null),
   ];
 
   const [userMemory, platformContext, last10, explicitMentorResults] = await Promise.all(parallelJobs);
@@ -674,7 +690,7 @@ async function chat(userId, userName, message, sessionId, ruthlessMode = false) 
   }
 
   const systemPrompt = buildSystemPrompt({
-    userName,
+    userName: userName || 'Visitor',
     userMemory,
     sessionSummary: session.summary,
     platformContext,
@@ -708,33 +724,35 @@ async function chat(userId, userName, message, sessionId, ruthlessMode = false) 
 
   const responseText = parsed.response;
 
-  const userCreatedAt = new Date();
-  const assistantCreatedAt = new Date(userCreatedAt.getTime() + 100);
+  if (userId && !session.id.startsWith('guest_')) {
+    const userCreatedAt = new Date();
+    const assistantCreatedAt = new Date(userCreatedAt.getTime() + 100);
 
-  await prisma.aiMessage.create({
-    data: { sessionId: session.id, role: 'user', content: message, createdAt: userCreatedAt },
-  });
-  await prisma.aiMessage.create({
-    data: { sessionId: session.id, role: 'assistant', content: responseText, createdAt: assistantCreatedAt },
-  });
+    await prisma.aiMessage.create({
+      data: { sessionId: session.id, role: 'user', content: message, createdAt: userCreatedAt },
+    }).catch(() => {});
+    await prisma.aiMessage.create({
+      data: { sessionId: session.id, role: 'assistant', content: responseText, createdAt: assistantCreatedAt },
+    }).catch(() => {});
 
-  const newCount = session.messageCount + 2;
-  await prisma.aiSession.update({
-    where: { id: session.id },
-    data: { messageCount: newCount },
-  });
+    const newCount = (session.messageCount || 0) + 2;
+    await prisma.aiSession.update({
+      where: { id: session.id },
+      data: { messageCount: newCount },
+    }).catch(() => {});
 
-  const allMessages = [
-    ...last10,
-    { role: 'user', content: message },
-    { role: 'assistant', content: responseText },
-  ];
+    const allMessages = [
+      ...last10,
+      { role: 'user', content: message },
+      { role: 'assistant', content: responseText },
+    ];
 
-  if (newCount % 10 === 0 || newCount <= 2) {
-    setImmediate(() => updateSessionSummary(session.id, session.summary, allMessages));
-  }
-  if (newCount % 10 === 0) {
-    setImmediate(() => updateUserMemory(userId, allMessages));
+    if (newCount % 10 === 0 || newCount <= 2) {
+      setImmediate(() => updateSessionSummary(session.id, session.summary, allMessages));
+    }
+    if (newCount % 10 === 0) {
+      setImmediate(() => updateUserMemory(userId, allMessages));
+    }
   }
 
   return {
@@ -749,26 +767,41 @@ async function chat(userId, userName, message, sessionId, ruthlessMode = false) 
 async function chatStream(userId, userName, message, sessionId, res, ruthlessMode = false) {
   const client = getClient();
 
-  let session;
-  if (sessionId) {
-    session = await prisma.aiSession.findFirst({ where: { id: sessionId, userId } });
+  let session = null;
+  if (userId) {
+    if (sessionId && !sessionId.startsWith('guest_')) {
+      session = await prisma.aiSession.findFirst({ where: { id: sessionId, userId } }).catch(() => null);
+    }
+    if (!session) {
+      session = await prisma.aiSession.create({ data: { userId } }).catch(() => null);
+    }
   }
+
+  // Guest / fallback session
   if (!session) {
-    session = await prisma.aiSession.create({ data: { userId } });
+    session = {
+      id: sessionId || `guest_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      summary: null,
+      messageCount: 0,
+      sessionType: 'general',
+      bookingId: null,
+    };
   }
 
   const hasExplicitMentorRequest = isExplicitMentorRequest(message);
 
   const parallelJobs = [
-    getUserMemory(userId),
-    getPlatformContext(),
-    prisma.aiMessage.findMany({
-      where: { sessionId: session.id },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 10,
-      select: { role: true, content: true },
-    }).then(rows => rows.reverse()),
-    hasExplicitMentorRequest ? searchMentorsForChat(message) : Promise.resolve(null),
+    userId ? getUserMemory(userId).catch(() => null) : Promise.resolve(null),
+    getPlatformContext().catch(() => ({ totalMentors: 0, categories: [], topMentors: [] })),
+    userId && session.id && !session.id.startsWith('guest_')
+      ? prisma.aiMessage.findMany({
+          where: { sessionId: session.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 10,
+          select: { role: true, content: true },
+        }).then(rows => rows.reverse()).catch(() => [])
+      : Promise.resolve([]),
+    hasExplicitMentorRequest ? searchMentorsForChat(message).catch(() => null) : Promise.resolve(null),
   ];
 
   const [userMemory, platformContext, last10, explicitMentorResults] = await Promise.all(parallelJobs);
@@ -779,7 +812,7 @@ async function chatStream(userId, userName, message, sessionId, res, ruthlessMod
   }
 
   const systemPrompt = buildSystemPrompt({
-    userName,
+    userName: userName || 'Visitor',
     userMemory,
     sessionSummary: session.summary,
     platformContext,
@@ -795,10 +828,12 @@ async function chatStream(userId, userName, message, sessionId, res, ruthlessMod
 
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
 
   const sendEvent = (event, data) => {
     try {
@@ -861,34 +896,36 @@ async function chatStream(userId, userName, message, sessionId, res, ruthlessMod
     sendEvent('done', { sessionId: session.id });
     res.end();
 
-    // Persist messages async (non-blocking)
-    const userCreatedAt = new Date();
-    const assistantCreatedAt = new Date(userCreatedAt.getTime() + 100);
+    if (userId && !session.id.startsWith('guest_')) {
+      // Persist messages async (non-blocking)
+      const userCreatedAt = new Date();
+      const assistantCreatedAt = new Date(userCreatedAt.getTime() + 100);
 
-    await prisma.aiMessage.create({
-      data: { sessionId: session.id, role: 'user', content: message, createdAt: userCreatedAt },
-    });
-    await prisma.aiMessage.create({
-      data: { sessionId: session.id, role: 'assistant', content: responseText, createdAt: assistantCreatedAt },
-    });
+      await prisma.aiMessage.create({
+        data: { sessionId: session.id, role: 'user', content: message, createdAt: userCreatedAt },
+      }).catch(() => {});
+      await prisma.aiMessage.create({
+        data: { sessionId: session.id, role: 'assistant', content: responseText, createdAt: assistantCreatedAt },
+      }).catch(() => {});
 
-    const newCount = session.messageCount + 2;
-    await prisma.aiSession.update({
-      where: { id: session.id },
-      data: { messageCount: newCount },
-    });
+      const newCount = (session.messageCount || 0) + 2;
+      await prisma.aiSession.update({
+        where: { id: session.id },
+        data: { messageCount: newCount },
+      }).catch(() => {});
 
-    const allMessages = [
-      ...last10,
-      { role: 'user', content: message },
-      { role: 'assistant', content: responseText },
-    ];
+      const allMessages = [
+        ...last10,
+        { role: 'user', content: message },
+        { role: 'assistant', content: responseText },
+      ];
 
-    if (newCount % 10 === 0 || newCount <= 2) {
-      setImmediate(() => updateSessionSummary(session.id, session.summary, allMessages));
-    }
-    if (newCount % 10 === 0) {
-      setImmediate(() => updateUserMemory(userId, allMessages));
+      if (newCount % 10 === 0 || newCount <= 2) {
+        setImmediate(() => updateSessionSummary(session.id, session.summary, allMessages));
+      }
+      if (newCount % 10 === 0) {
+        setImmediate(() => updateUserMemory(userId, allMessages));
+      }
     }
 
   } catch (err) {

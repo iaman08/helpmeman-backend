@@ -30,19 +30,69 @@ async function getPendingMentors(req, res) {
   try {
     const { page = 1, limit = 10 } = req.query;
     const [mentors, total] = await Promise.all([
-      prisma.mentor.findMany({ where: { approvalStatus: 'PENDING' }, include: { user: true, category: true, verificationDocs: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
+      prisma.mentor.findMany({
+        where: { approvalStatus: 'PENDING' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              avatar: true,
+              role: true,
+              onboardingRole: true,
+              mentorProfile: true,
+              mentorOnboarding: true,
+              createdAt: true,
+            },
+          },
+          category: true,
+          verificationDocs: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: parseInt(limit),
+      }),
       prisma.mentor.count({ where: { approvalStatus: 'PENDING' } }),
     ]);
     res.json({ mentors, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[ADMIN] getPendingMentors error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
 }
 
 async function getMentorDetail(req, res) {
   try {
-    const mentor = await prisma.mentor.findUnique({ where: { id: req.params.id }, include: { user: true, category: true, verificationDocs: true, reviews: { take: 10 } } });
+    const mentor = await prisma.mentor.findUnique({
+      where: { id: req.params.id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            avatar: true,
+            role: true,
+            onboardingRole: true,
+            mentorProfile: true,
+            mentorOnboarding: true,
+            createdAt: true,
+          },
+        },
+        category: true,
+        verificationDocs: true,
+        reviews: { take: 10 },
+      },
+    });
     if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
     res.json({ mentor });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[ADMIN] getMentorDetail error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
 }
 
 async function approveMentorHandler(req, res) {
@@ -87,17 +137,53 @@ async function rejectMentorHandler(req, res) {
 
 async function getAllMentors(req, res) {
   try {
-    const { status, category, institutionType, page = 1, limit = 20 } = req.query;
+    const { status, category, institutionType, q, page = 1, limit = 20 } = req.query;
     const where = {};
-    if (status) where.approvalStatus = status;
+    if (status && status !== 'All') where.approvalStatus = status;
     if (category) where.categoryId = category;
     if (institutionType) where.institutionType = institutionType;
+    if (q && q.trim()) {
+      const term = q.trim();
+      where.OR = [
+        { displayName: { contains: term, mode: 'insensitive' } },
+        { institutionName: { contains: term, mode: 'insensitive' } },
+        { company: { contains: term, mode: 'insensitive' } },
+        { user: { name: { contains: term, mode: 'insensitive' } } },
+        { user: { email: { contains: term, mode: 'insensitive' } } },
+      ];
+    }
     const [mentors, total] = await Promise.all([
-      prisma.mentor.findMany({ where, include: { user: { select: { name: true, email: true } }, category: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
+      prisma.mentor.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              avatar: true,
+              role: true,
+              onboardingRole: true,
+              mentorProfile: true,
+              mentorOnboarding: true,
+              createdAt: true,
+            },
+          },
+          category: true,
+          verificationDocs: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: parseInt(limit),
+      }),
       prisma.mentor.count({ where }),
     ]);
     res.json({ mentors, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[ADMIN] getAllMentors error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
 }
 
 async function toggleMentorActive(req, res) {
