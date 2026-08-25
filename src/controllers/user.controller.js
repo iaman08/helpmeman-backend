@@ -9,7 +9,7 @@ async function getProfile(req, res) {
     const [user, mentor, profile, onboarding] = await Promise.all([
       prisma.user.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true, username: true, currentRole: true, currency: true, mustChangePassword: true }
+        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true, username: true, currentRole: true, currency: true, mustChangePassword: true, twoFactorEnabled: true }
       }),
       prisma.mentor.findUnique({
         where: { userId: req.user.id },

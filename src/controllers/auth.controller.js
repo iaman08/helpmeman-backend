@@ -867,24 +867,53 @@ async function changePassword(req, res) {
 
     // Update password in Supabase Auth via Admin API
     // NOTE: this invalidates the user's current session token.
-    const { error: supabaseError } = await supabase.auth.admin.updateUserById(req.user.id, {
+    let supabaseError;
+    const updateRes = await supabase.auth.admin.updateUserById(req.user.id, {
       password: newPassword,
     });
+    supabaseError = updateRes.error;
+
+    if (supabaseError && req.user.email) {
+      console.warn('[CHANGE_PASSWORD] Direct ID update failed, attempting lookup by email:', req.user.email);
+      try {
+        const { data: listData } = await supabase.auth.admin.listUsers();
+        const found = listData?.users?.find((u) => u.email?.toLowerCase() === req.user.email?.toLowerCase());
+        if (found) {
+          const retryRes = await supabase.auth.admin.updateUserById(found.id, {
+            password: newPassword,
+          });
+          supabaseError = retryRes.error;
+        }
+      } catch (lookupErr) {
+        console.error('[CHANGE_PASSWORD] Supabase fallback lookup error:', lookupErr.message);
+      }
+    }
 
     if (supabaseError) {
       console.error('[CHANGE_PASSWORD] Supabase update failed:', supabaseError.message);
-      return res.status(500).json({ error: 'Failed to update password. Please try again.' });
+      return res.status(500).json({ error: 'Failed to update password in authentication service. Please try again.' });
     }
+
+    // Also hash password locally for database consistency
+    let passwordHashUpdate = {};
+    try {
+      const { hashPassword } = require('../utils/hash');
+      const hash = await hashPassword(newPassword);
+      passwordHashUpdate = { passwordHash: hash };
+    } catch {}
 
     // Clear the force-change flag in local DB
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },
-      data: { mustChangePassword: false },
+      data: {
+        mustChangePassword: false,
+        ...passwordHashUpdate,
+      },
       select: {
         id: true, name: true, email: true, phone: true, avatar: true,
         role: true, onboardingRole: true, isEmailVerified: true,
         createdAt: true, username: true, currentRole: true,
-        currency: true, mustChangePassword: true,
+        currency: true, mustChangePassword: true, twoFactorEnabled: true,
       },
     });
 

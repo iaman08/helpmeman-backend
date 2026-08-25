@@ -98,7 +98,7 @@ const refreshTokenSchema = z.object({
  */
 const changePasswordSchema = z.object({
   body: z.object({
-    oldPassword: z.string().min(1, 'Current password is required'),
+    oldPassword: z.string().optional(),
     newPassword: z.string()
       .min(8, 'New password must be at least 8 characters')
       .max(128)

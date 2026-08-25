@@ -21,28 +21,66 @@ async function setup2FA(req, res) {
       return res.status(401).json({ error: 'Unauthorized user session' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: { id: true, email: true, role: true, twoFactorEnabled: true, twoFactorSecret: true },
-    });
+    let user;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, email: true, role: true, twoFactorEnabled: true, twoFactorSecret: true },
+      });
+    } catch (queryErr) {
+      const raw = await prisma.$queryRawUnsafe(
+        `SELECT id, email, role, "twoFactorEnabled", "twoFactorSecret" FROM "User" WHERE id = $1 LIMIT 1`,
+        req.user.id
+      );
+      user = raw?.[0];
+    }
 
     if (!user) return res.status(404).json({ error: 'User profile not found' });
 
     // Generate new secret or reuse existing setup secret if not enabled yet
     let secret = user.twoFactorSecret;
-    if (!secret || !user.twoFactorEnabled) {
+    let otpAuthUrl;
+    try {
+      if (!secret || !user.twoFactorEnabled) {
+        secret = generateSecret();
+        try {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { twoFactorSecret: secret },
+          });
+        } catch {
+          await prisma.$executeRawUnsafe(
+            `UPDATE "User" SET "twoFactorSecret" = $1 WHERE id = $2`,
+            secret,
+            user.id
+          );
+        }
+      }
+      otpAuthUrl = generateURI({
+        secret,
+        label: user.email || 'User',
+        issuer: 'HelpMeMan',
+      });
+    } catch (e) {
       secret = generateSecret();
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { twoFactorSecret: secret },
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { twoFactorSecret: secret },
+        });
+      } catch {
+        await prisma.$executeRawUnsafe(
+          `UPDATE "User" SET "twoFactorSecret" = $1 WHERE id = $2`,
+          secret,
+          user.id
+        );
+      }
+      otpAuthUrl = generateURI({
+        secret,
+        label: user.email || 'User',
+        issuer: 'HelpMeMan',
       });
     }
-
-    const otpAuthUrl = generateURI({
-      secret,
-      label: user.email,
-      issuer: 'HelpMeMan',
-    });
 
     const qrCodeUrl = await QRCode.toDataURL(otpAuthUrl);
 
@@ -71,10 +109,19 @@ async function enable2FA(req, res) {
       return res.status(400).json({ error: 'Please enter a valid 6-digit code from Google Authenticator' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: { id: true, twoFactorSecret: true, twoFactorEnabled: true },
-    });
+    let user;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, twoFactorSecret: true, twoFactorEnabled: true },
+      });
+    } catch {
+      const raw = await prisma.$queryRawUnsafe(
+        `SELECT id, "twoFactorSecret", "twoFactorEnabled" FROM "User" WHERE id = $1 LIMIT 1`,
+        req.user.id
+      );
+      user = raw?.[0];
+    }
 
     if (!user || !user.twoFactorSecret) {
       return res.status(400).json({ error: '2FA setup not initiated. Please generate a QR code first.' });
@@ -85,10 +132,17 @@ async function enable2FA(req, res) {
       return res.status(400).json({ error: 'Invalid verification code. Please check your Google Authenticator app.' });
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { twoFactorEnabled: true },
-    });
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { twoFactorEnabled: true },
+      });
+    } catch {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "User" SET "twoFactorEnabled" = true WHERE id = $1`,
+        user.id
+      );
+    }
 
     res.json({
       message: 'Google Authenticator 2FA enabled successfully!',
@@ -111,10 +165,19 @@ async function disable2FA(req, res) {
       return res.status(400).json({ error: 'Please enter your current 6-digit 2FA code' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: { id: true, twoFactorSecret: true, twoFactorEnabled: true },
-    });
+    let user;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, twoFactorSecret: true, twoFactorEnabled: true },
+      });
+    } catch {
+      const raw = await prisma.$queryRawUnsafe(
+        `SELECT id, "twoFactorSecret", "twoFactorEnabled" FROM "User" WHERE id = $1 LIMIT 1`,
+        req.user.id
+      );
+      user = raw?.[0];
+    }
 
     if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
       return res.status(400).json({ error: '2FA is not enabled on this account' });
@@ -125,10 +188,17 @@ async function disable2FA(req, res) {
       return res.status(400).json({ error: 'Invalid 2FA code' });
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { twoFactorEnabled: false, twoFactorSecret: null },
-    });
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { twoFactorEnabled: false, twoFactorSecret: null },
+      });
+    } catch {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "User" SET "twoFactorEnabled" = false, "twoFactorSecret" = NULL WHERE id = $1`,
+        user.id
+      );
+    }
 
     res.json({ message: '2FA disabled successfully', twoFactorEnabled: false });
   } catch (error) {
@@ -160,10 +230,19 @@ async function verify2FALogin(req, res) {
       return res.status(400).json({ error: 'Invalid 2FA session token' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      include: { mentor: true },
-    });
+    let user;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        include: { mentor: true },
+      });
+    } catch {
+      const raw = await prisma.$queryRawUnsafe(
+        `SELECT id, email, role, "twoFactorEnabled", "twoFactorSecret" FROM "User" WHERE id = $1 LIMIT 1`,
+        decoded.userId
+      );
+      user = raw?.[0];
+    }
 
     if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
       return res.status(400).json({ error: '2FA is not enabled for this account' });

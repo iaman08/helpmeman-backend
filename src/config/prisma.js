@@ -104,6 +104,9 @@ if (process.env.NODE_ENV === 'production') {
         ADD COLUMN IF NOT EXISTS "lastSeen" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
         ADD COLUMN IF NOT EXISTS "presenceStatus" TEXT DEFAULT 'OFFLINE',
         ADD COLUMN IF NOT EXISTS "currency" TEXT,
+        ADD COLUMN IF NOT EXISTS "mustChangePassword" BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS "twoFactorEnabled" BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS "twoFactorSecret" TEXT,
         ADD COLUMN IF NOT EXISTS "platformReviewSubmitted" BOOLEAN NOT NULL DEFAULT false,
         ADD COLUMN IF NOT EXISTS "lastReviewPromptAt" TIMESTAMP(3),
         ADD COLUMN IF NOT EXISTS "reviewPromptDismissCount" INTEGER NOT NULL DEFAULT 0,
@@ -118,6 +121,20 @@ if (process.env.NODE_ENV === 'production') {
       CREATE INDEX IF NOT EXISTS "User_username_idx" ON "User"("username");
     `);
     console.log('[DB] User table schema verification complete ✓');
+
+    // Automatically regenerate Prisma Client JS SDK if 2FA fields or platformReview model are not yet attached
+    const userFields = prisma._runtimeDataModel?.models?.User?.fields || [];
+    const has2FA = userFields.some((f) => f.name === 'twoFactorEnabled');
+    if (!prisma.platformReview || !has2FA) {
+      try {
+        console.log('[DB] Generating updated Prisma Client for User 2FA & PlatformReview...');
+        const prismaDir = path.join(__dirname, '..', '..');
+        execSync('npx prisma generate', { cwd: prismaDir, stdio: 'ignore' });
+        console.log('[DB] Prisma Client generated successfully ✓');
+      } catch (genErr) {
+        console.error('[DB] Automatic prisma generate skipped/failed:', genErr.message);
+      }
+    }
 
     console.log('[DB] Verifying PlatformReview table in PostgreSQL...');
     await prisma.$executeRawUnsafe(`
