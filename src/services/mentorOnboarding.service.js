@@ -417,7 +417,6 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
   } else {
     console.log(`[ONBOARDING] ℹ️ Mentorship Onboarding Status confirms checkmark email already sent for ${user.email}. Skipping duplicate.`);
   }
-  }
 
   return getState(userId);
 }
