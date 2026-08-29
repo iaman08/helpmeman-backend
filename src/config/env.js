@@ -72,4 +72,10 @@ module.exports = {
     privateKey: process.env.VAPID_PRIVATE_KEY,
     subject: process.env.VAPID_SUBJECT || 'mailto:noreply@helpmeman.com',
   },
+  tawk: {
+    webhookSecret: process.env.TAWK_WEBHOOK_SECRET,
+  },
+  discord: {
+    ticketWebhookUrl: process.env.DISCORD_TICKET_WEBHOOK_URL,
+  },
 };
