@@ -56,6 +56,7 @@ const reviewRoutes = require('./routes/review.routes');
 const platformReviewRoutes = require('./routes/platformReview.routes');
 const resumeRoastRoutes = require('./routes/resumeRoast.routes');
 const webhookRoutes = require('./routes/webhook.routes');
+const aptitudeTestRoutes = require('./routes/aptitudeTest.routes');
 
 const app = express();
 // Enable proxy trust across multi-tier reverse proxies (Cloudflare + DigitalOcean Load Balancer)
@@ -219,6 +220,7 @@ app.use('/api/super-admin/admin-management', adminManagementRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/platform-reviews', platformReviewRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/aptitude-test', aptitudeTestRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {
