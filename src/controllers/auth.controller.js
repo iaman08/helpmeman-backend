@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const supabase = require('../config/supabase');
+const jwt = require('jsonwebtoken');
 const { hashPassword, comparePassword } = require('../utils/hash');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken, generateEmailToken, verifyEmailToken } = require('../utils/jwt');
 const { generateOTP, storeOTP, verifyOTP, canRequestOTP, getOTPCooldown } = require('../utils/otp');
