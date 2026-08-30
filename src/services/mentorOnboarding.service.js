@@ -173,32 +173,41 @@ async function selectRole(userId, role) {
   if (!['MENTOR', 'MENTEE'].includes(role)) throw new Error('Choose MENTOR or MENTEE');
   const user = await prisma.user.update({ where: { id: userId }, data: { onboardingRole: role, ...(role === 'MENTOR' ? { role: 'MENTOR' } : {}) } });
   if (role === 'MENTOR') {
-    const firstName = user?.name ? user.name.split(' ')[0] : 'there';
-    const firstMsg = {
-      id: `msg_init`,
-      sender: 'RUTH',
-      text: `Hi ${firstName}, I’m Ruth. I’ll ask one thing at a time, remember every answer, and shape your mentor profile as we go.`,
-      createdAt: new Date().toISOString(),
-    };
-    const firstQuestionMsg = {
-      id: `msg_q0`,
-      sender: 'RUTH',
-      text: BASE_QUESTIONS[0].text,
-      createdAt: new Date().toISOString(),
-    };
+    const existingOnboarding = await prisma.mentorOnboarding.findUnique({ where: { userId } });
+    if (!existingOnboarding || (!existingOnboarding.completed && (!existingOnboarding.answers || existingOnboarding.answers.length === 0))) {
+      const firstName = user?.name ? user.name.split(' ')[0] : 'there';
+      const firstMsg = {
+        id: `msg_init`,
+        sender: 'RUTH',
+        text: `Hi ${firstName}, I’m Ruth. I’ll ask one thing at a time, remember every answer, and shape your mentor profile as we go.`,
+        createdAt: new Date().toISOString(),
+      };
+      const firstQuestionMsg = {
+        id: `msg_q0`,
+        sender: 'RUTH',
+        text: BASE_QUESTIONS[0].text,
+        createdAt: new Date().toISOString(),
+      };
 
-    await Promise.all([
-      prisma.mentorProfile.upsert({
+      await Promise.all([
+        prisma.mentorProfile.upsert({
+          where: { mentorId: userId },
+          update: { onboardingStatus: 'IN_PROGRESS' },
+          create: { mentorId: userId, skills: [], expertiseTags: [], onboardingStatus: 'IN_PROGRESS' },
+        }),
+        prisma.mentorOnboarding.upsert({
+          where: { userId },
+          update: { currentQuestion: 0, completed: false, messages: [firstMsg, firstQuestionMsg], answers: [] },
+          create: { userId, currentQuestion: 0, completed: false, messages: [firstMsg, firstQuestionMsg], answers: [] },
+        }),
+      ]);
+    } else {
+      await prisma.mentorProfile.upsert({
         where: { mentorId: userId },
         update: { onboardingStatus: 'IN_PROGRESS' },
         create: { mentorId: userId, skills: [], expertiseTags: [], onboardingStatus: 'IN_PROGRESS' },
-      }),
-      prisma.mentorOnboarding.upsert({
-        where: { userId },
-        update: { currentQuestion: 0, completed: false, messages: [firstMsg, firstQuestionMsg], answers: [] },
-        create: { userId, currentQuestion: 0, completed: false, messages: [firstMsg, firstQuestionMsg], answers: [] },
-      }),
-    ]);
+      });
+    }
   }
   return getState(userId);
 }

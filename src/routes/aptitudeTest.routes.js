@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken } = require('../middlewares/auth.middleware');
+const { authenticate } = require('../middleware/auth');
 const {
   getQuestions,
   getStatus,
@@ -13,9 +13,9 @@ const {
 router.get('/questions', getQuestions);
 
 // Protected routes requiring user login
-router.get('/status', authenticateToken, getStatus);
-router.post('/create-order', authenticateToken, createAptitudeOrder);
-router.post('/verify-payment', authenticateToken, verifyAptitudePayment);
-router.post('/submit', authenticateToken, submitTest);
+router.get('/status', authenticate, getStatus);
+router.post('/create-order', authenticate, createAptitudeOrder);
+router.post('/verify-payment', authenticate, verifyAptitudePayment);
+router.post('/submit', authenticate, submitTest);
 
 module.exports = router;
