@@ -27,7 +27,7 @@ async function main() {
   const catMap = {};
   categories.forEach((c) => (catMap[c.slug] = c.id));
 
-  // ─── Admin User ───
+  // ─── Admin Users ───
   const adminHash = await hashPw('Admin@4321');
   const admin = await prisma.user.upsert({
     where: { email: 'admin@helpmeman.com' },
@@ -35,6 +35,14 @@ async function main() {
     create: { name: 'HelpMeMan Admin', email: 'admin@helpmeman.com', passwordHash: adminHash, role: 'ADMIN', isEmailVerified: true },
   });
   console.log(`✅ Admin: ${admin.email}`);
+
+  const omiHash = await hashPw('Omi@helpmeman1');
+  const omiAdmin = await prisma.user.upsert({
+    where: { email: 'omi@helpmeman.com' },
+    update: { passwordHash: omiHash, role: 'ADMIN' },
+    create: { name: 'Omi', email: 'omi@helpmeman.com', passwordHash: omiHash, role: 'ADMIN', isEmailVerified: true },
+  });
+  console.log(`✅ Admin: ${omiAdmin.email}`);
 
   // ───   // Clear old mentors to keep the database fresh with the new set
   const oldMentorEmails = [
