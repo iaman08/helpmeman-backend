@@ -42,10 +42,11 @@ async function uploadAttachment(req, res) {
     });
     if (!thread) return res.status(404).json({ error: 'Thread not found' });
 
-    const isMentor = req.user.role === 'MENTOR';
-    const authorized = isMentor
-      ? thread.mentor?.userId === req.user.id
-      : thread.userId === req.user.id;
+    const authorized =
+      thread.userId === req.user.id ||
+      thread.mentor?.userId === req.user.id ||
+      req.user.role === 'ADMIN' ||
+      req.user.role === 'SUPER_ADMIN';
     if (!authorized) return res.status(403).json({ error: 'Forbidden' });
 
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });

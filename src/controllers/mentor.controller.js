@@ -70,7 +70,10 @@ async function searchMentors(req, res) {
       prisma.mentor.count({ where }),
     ]);
 
-    const mentors = mentorsList.map(enrichPresence);
+    const mentors = mentorsList.map(m => {
+      const { institutionEmail, googleAccessToken, googleRefreshToken, googleCalendarId, ...safe } = m;
+      return enrichPresence(safe);
+    });
 
     res.json({ mentors, total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Search failed' }); }
@@ -83,7 +86,7 @@ async function getMentorPublic(req, res) {
       include: {
         category: true,
         user: {
-          select: { name: true, email: true, avatar: true, presenceStatus: true, lastSeen: true }
+          select: { name: true, avatar: true, presenceStatus: true, lastSeen: true }
         },
         reviews: {
           where: { isVisible: true },
@@ -96,7 +99,8 @@ async function getMentorPublic(req, res) {
       },
     });
     if (!mentorRaw) return res.status(404).json({ error: 'Mentor not found' });
-    const mentor = enrichPresence(mentorRaw);
+    const { institutionEmail, googleAccessToken, googleRefreshToken, googleCalendarId, ...safeMentor } = mentorRaw;
+    const mentor = enrichPresence(safeMentor);
     res.json({ mentor });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }

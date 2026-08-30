@@ -44,13 +44,25 @@ async function register(req, res) {
     await storeOTP(normalizedEmail, otp, 'signup');
     await storeOTP(normalizedEmail, otp, 'verify');
 
-    console.log(`\n🔑 [OTP] Signup code for ${normalizedEmail}: ${otp}\n`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`\n🔑 [OTP] Signup code for ${normalizedEmail}: ${otp}\n`);
+    }
 
     const emailResult = await sendOtpEmail({ email: normalizedEmail, name, otp, purpose: 'signup' });
     if (!emailResult.success && process.env.NODE_ENV === 'production') {
       console.error(`[AUTH] Failed to send OTP email to ${normalizedEmail}: ${emailResult.error}`);
       return res.status(500).json({ error: 'Failed to deliver OTP email. Please check your email address and try again.' });
     }
+
+    try {
+      const { logAuditEvent } = require('../services/auditLog.service');
+      logAuditEvent({
+        action: 'SIGNUP_INITIATED',
+        actorId: normalizedEmail,
+        req,
+        metadata: { email: normalizedEmail, name },
+      }).catch(() => {});
+    } catch (e) {}
 
     res.json({ message: 'Verification OTP sent to your email', email: normalizedEmail, requiresOTP: true });
   } catch (error) {
@@ -275,7 +287,9 @@ async function registerMentor(req, res) {
       await storeOTP(normalizedEmail, otp, 'verify');
     }
 
-    console.log(`\n🔑 [OTP] Mentor signup code for ${normalizedInstEmail} / ${normalizedEmail}: ${otp}\n`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`\n🔑 [OTP] Mentor signup code for ${normalizedInstEmail} / ${normalizedEmail}: ${otp}\n`);
+    }
 
     const recipientEmail = normalizedInstEmail || normalizedEmail;
     const emailResult = await sendOtpEmail({ email: recipientEmail, name, otp, purpose: 'signup' });
@@ -449,6 +463,18 @@ async function login(req, res) {
 
     if (error || !data.user || !data.session) {
       console.warn(`[AUTH] Login failed for email: ${email}. Error: ${error?.message}`);
+      try {
+        const { logAuditEvent } = require('../services/auditLog.service');
+        logAuditEvent({
+          action: 'LOGIN_FAILED',
+          actorId: email.toLowerCase(),
+          req,
+          isSuspicious: true,
+          flagReason: 'Invalid credentials provided',
+          metadata: { attemptedEmail: email.toLowerCase(), error: error?.message },
+        }).catch(() => {});
+      } catch (e) {}
+
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -489,6 +515,21 @@ async function login(req, res) {
 
     // Track last login
     prisma.user.update({ where: { id: user.id }, data: { lastSeen: new Date() } }).catch(() => {});
+
+    // Record login audit event with client and device details
+    try {
+      const { logAuditEvent } = require('../services/auditLog.service');
+      logAuditEvent({
+        action: user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? 'ADMIN_LOGIN' : 'USER_LOGIN',
+        actorId: user.id,
+        req,
+        metadata: {
+          email: user.email,
+          role: user.role,
+          name: user.name,
+        },
+      }).catch(() => {});
+    } catch (e) {}
 
     console.log(`[AUTH] Login completed successfully for user: ${email}`);
     res.json({
@@ -666,7 +707,9 @@ async function resendOTP(req, res) {
       const otp = generateOTP();
       await storeOTP(normalizedEmail, otp, 'signup');
       await storeOTP(normalizedEmail, otp, 'verify');
-      console.log(`\n🔑 [OTP] Resending code for ${normalizedEmail}: ${otp}\n`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`\n🔑 [OTP] Resending code for ${normalizedEmail}: ${otp}\n`);
+      }
 
       const emailResult = await sendOtpEmail({ email: normalizedEmail, otp, purpose: 'signup' });
       if (!emailResult.success && process.env.NODE_ENV === 'production') {
@@ -796,6 +839,20 @@ async function googleLogin(req, res) {
 
     // Track last login
     prisma.user.update({ where: { id: user.id }, data: { lastSeen: new Date() } }).catch(() => {});
+
+    try {
+      const { logAuditEvent } = require('../services/auditLog.service');
+      logAuditEvent({
+        action: user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? 'ADMIN_GOOGLE_LOGIN' : 'USER_GOOGLE_LOGIN',
+        actorId: user.id,
+        req,
+        metadata: {
+          email: user.email,
+          role: user.role,
+          provider: 'google',
+        },
+      }).catch(() => {});
+    } catch (e) {}
 
     res.json({
       user: {

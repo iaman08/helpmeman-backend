@@ -138,13 +138,16 @@ async function getQuestions(req, res) {
 async function getStatus(req, res) {
   try {
     const userId = req.user.id;
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, aptitudeUnlocked: true }
-    });
+    let unlocked = false;
+    try {
+      const rows = await prisma.$queryRawUnsafe(`SELECT "aptitudeUnlocked" FROM "User" WHERE id = $1 LIMIT 1`, userId);
+      unlocked = Boolean(rows[0]?.aptitudeUnlocked);
+    } catch {
+      unlocked = false;
+    }
 
     return res.json({
-      unlocked: Boolean(user?.aptitudeUnlocked),
+      unlocked,
       priceINR: 299,
     });
   } catch (error) {
@@ -202,10 +205,11 @@ async function verifyAptitudePayment(req, res) {
     }
 
     // Grant access in database
-    await prisma.user.update({
-      where: { id: userId },
-      data: { aptitudeUnlocked: true },
-    });
+    try {
+      await prisma.$executeRawUnsafe(`UPDATE "User" SET "aptitudeUnlocked" = true WHERE id = $1`, userId);
+    } catch (dbErr) {
+      console.warn("[Aptitude] Could not update aptitudeUnlocked column:", dbErr.message);
+    }
 
     return res.json({
       success: true,

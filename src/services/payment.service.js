@@ -34,9 +34,11 @@ function verifyPaymentSignature({ orderId, paymentId, signature }) {
 }
 
 function verifyWebhookSignature(body, signature) {
+  if (!signature || !config.razorpay.webhookSecret) return false;
+  const payload = Buffer.isBuffer(body) ? body : (typeof body === 'string' ? body : JSON.stringify(body));
   const generatedSignature = crypto
     .createHmac('sha256', config.razorpay.webhookSecret)
-    .update(JSON.stringify(body))
+    .update(payload)
     .digest('hex');
 
   try {

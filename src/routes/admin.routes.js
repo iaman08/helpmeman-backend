@@ -22,6 +22,9 @@ router.get('/bookings', admin.getAllBookings);
 router.get('/categories', admin.getCategories);
 router.post('/categories', admin.createCategory);
 router.put('/categories/:id', admin.updateCategory);
+const { viewAuditLogs } = require('../controllers/superAdmin.controller');
+
+router.get('/audit-logs', viewAuditLogs);
 router.get('/earnings', admin.getEarnings);
 router.get('/reviews', admin.getAllReviews);
 router.get('/chats/stats', admin.getChatStats);

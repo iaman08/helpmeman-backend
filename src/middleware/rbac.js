@@ -82,6 +82,25 @@ function roleGuard(...allowedRoles) {
       (userRole === 'ADMIN' && (roles.includes('MENTOR') || roles.includes('STUDENT')));
 
     if (!isAllowed) {
+      // Asynchronously log unauthorized access attempt
+      try {
+        const { logAuditEvent } = require('../services/auditLog.service');
+        logAuditEvent({
+          action: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+          actorId: req.user.id,
+          endpoint: req.originalUrl || req.path,
+          req,
+          isSuspicious: true,
+          flagReason: `Attempted to access route requiring [${roles.join(', ')}] with role ${userRole}`,
+          metadata: {
+            actorEmail: req.user.email,
+            userRole,
+            requiredRoles: roles,
+            method: req.method,
+          },
+        }).catch(() => {});
+      } catch (e) {}
+
       return res.status(403).json({ error: 'Insufficient permissions', code: 'FORBIDDEN' });
     }
 

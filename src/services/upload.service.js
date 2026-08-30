@@ -25,7 +25,8 @@ function validateFile(file, allowedTypes = ALLOWED_IMAGE_TYPES) {
 }
 
 async function uploadFileToSupabase(file, folder) {
-  const fileExt = file.originalname.split('.').pop();
+  const rawExt = file.originalname ? file.originalname.split('.').pop() : 'bin';
+  const fileExt = (rawExt || 'bin').replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'bin';
   const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
   
   const { data, error } = await supabase.storage

@@ -171,7 +171,15 @@ async function getState(userId) {
 
 async function selectRole(userId, role) {
   if (!['MENTOR', 'MENTEE'].includes(role)) throw new Error('Choose MENTOR or MENTEE');
-  const user = await prisma.user.update({ where: { id: userId }, data: { onboardingRole: role, ...(role === 'MENTOR' ? { role: 'MENTOR' } : {}) } });
+  const existingUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, name: true } });
+  const shouldUpdateRole = role === 'MENTOR' && existingUser && existingUser.role !== 'ADMIN' && existingUser.role !== 'SUPER_ADMIN';
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      onboardingRole: role,
+      ...(shouldUpdateRole ? { role: 'MENTOR' } : {}),
+    },
+  });
   if (role === 'MENTOR') {
     const existingOnboarding = await prisma.mentorOnboarding.findUnique({ where: { userId } });
     if (!existingOnboarding || (!existingOnboarding.completed && (!existingOnboarding.answers || existingOnboarding.answers.length === 0))) {

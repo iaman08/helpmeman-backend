@@ -1,6 +1,16 @@
 const prisma = require('../config/prisma');
 const { uploadImage, deleteFile } = require('../services/upload.service');
 
+function sanitizeTeamMember(member) {
+  if (!member) return null;
+  const { phone, email, showEmail, ...rest } = member;
+  return {
+    ...rest,
+    showEmail,
+    email: showEmail ? email : null,
+  };
+}
+
 // Get all team members (with filters and search)
 async function getTeam(req, res) {
   try {
@@ -40,7 +50,7 @@ async function getTeam(req, res) {
     const parsedLimit = parseInt(limit);
     const skip = (parsedPage - 1) * parsedLimit;
 
-    const [members, total] = await Promise.all([
+    const [membersList, total] = await Promise.all([
       prisma.teamMember.findMany({
         where,
         orderBy: { displayOrder: 'asc' },
@@ -49,6 +59,8 @@ async function getTeam(req, res) {
       }),
       prisma.teamMember.count({ where }),
     ]);
+
+    const members = membersList.map(sanitizeTeamMember);
 
     res.json({
       members,
@@ -66,13 +78,15 @@ async function getTeam(req, res) {
 async function getTeamMemberByUsername(req, res) {
   try {
     const { username } = req.params;
-    const member = await prisma.teamMember.findUnique({
+    const rawMember = await prisma.teamMember.findUnique({
       where: { username: username.toLowerCase().trim() },
     });
 
-    if (!member) {
+    if (!rawMember) {
       return res.status(404).json({ error: 'Team member not found' });
     }
+
+    const member = sanitizeTeamMember(rawMember);
 
     res.json({ member });
   } catch (error) {

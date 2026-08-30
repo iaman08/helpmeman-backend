@@ -1,3 +1,4 @@
+const prisma = require('../config/prisma');
 const authService = require('../services/auth.service');
 const { updateUserPresence } = require('../services/presence.service');
 
@@ -41,11 +42,33 @@ function setupChatSocket(io) {
       updateUserPresence(userId).catch(() => {});
     });
 
-    // ── Join a thread room ──────────────────────────────────────────────────
-    socket.on('join_thread', ({ threadId }) => {
+    // ── Join a thread room (with IDOR protection) ───────────────────────────
+    socket.on('join_thread', async ({ threadId }) => {
       if (!threadId) return;
-      socket.join(`chat:${threadId}`);
-      console.log(`[SOCKET] ${userId} joined chat:${threadId}`);
+      try {
+        const thread = await prisma.chatThread.findUnique({
+          where: { id: threadId },
+          include: { mentor: { select: { userId: true } } },
+        });
+        if (!thread) return;
+
+        const isAuthorized =
+          thread.userId === userId ||
+          thread.mentor?.userId === userId ||
+          socket.userRole === 'ADMIN' ||
+          socket.userRole === 'SUPER_ADMIN';
+
+        if (!isAuthorized) {
+          console.warn(`[SOCKET] Unauthorized join_thread attempt by ${userId} for thread ${threadId}`);
+          socket.emit('error', { message: 'Unauthorized thread access' });
+          return;
+        }
+
+        socket.join(`chat:${threadId}`);
+        console.log(`[SOCKET] ${userId} joined chat:${threadId}`);
+      } catch (err) {
+        console.error('[SOCKET] join_thread validation error:', err.message);
+      }
     });
 
     // ── Leave a thread room ─────────────────────────────────────────────────

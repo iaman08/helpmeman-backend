@@ -90,8 +90,7 @@ const corsOriginCheck = (origin, callback) => {
   const isCustomDomain =
     cleanOrigin === 'https://helpmeman.com' ||
     cleanOrigin === 'https://www.helpmeman.com' ||
-    cleanOrigin.endsWith('.helpmeman.com') ||
-    cleanOrigin.endsWith('.ondigitalocean.app');
+    cleanOrigin.endsWith('.helpmeman.com');
 
   const isExplicitlyAllowed = allowedOrigins.includes(cleanOrigin);
 
@@ -232,73 +231,6 @@ app.get('/api/health', async (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   } catch {
     res.status(503).json({ status: 'degraded' });
-  }
-});
-
-// Temporary diagnostic endpoint (REMOVE AFTER DEBUGGING)
-app.get('/api/debug/supabase-check', async (req, res) => {
-  try {
-    const envConfig = require('./config/env');
-    const prisma = require('./config/prisma');
-    const diagnostics = {
-      NODE_ENV: process.env.NODE_ENV,
-      DATABASE_URL: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
-      DIRECT_URL: process.env.DIRECT_URL ? process.env.DIRECT_URL.replace(/:[^:@]+@/, ':***@') : 'NOT SET',
-    };
-
-    // User count and recent users
-    try {
-      const users = await prisma.$queryRaw`SELECT id, email, role, "createdAt" FROM "User" ORDER BY "createdAt" DESC LIMIT 20`;
-      diagnostics.USER_COUNT = users.length;
-      diagnostics.RECENT_USERS = users.map(u => ({
-        id: u.id.substring(0, 16) + '...',
-        email: u.email,
-        role: u.role,
-        createdAt: u.createdAt
-      }));
-    } catch (e) {
-      diagnostics.USER_ERROR = e.message.substring(0, 300);
-    }
-
-    // User columns
-    try {
-      const cols = await prisma.$queryRaw`SELECT column_name FROM information_schema.columns WHERE table_name = 'User' ORDER BY ordinal_position`;
-      diagnostics.USER_COLUMNS = cols.map(c => c.column_name);
-    } catch (e) {
-      diagnostics.USER_COLUMNS_ERROR = e.message.substring(0, 200);
-    }
-
-    // Role enum
-    try {
-      const roles = await prisma.$queryRaw`SELECT unnest(enum_range(NULL::"Role"))::text as value`;
-      diagnostics.ROLE_ENUM = roles.map(r => r.value);
-    } catch (e) {
-      diagnostics.ROLE_ENUM_ERROR = e.message.substring(0, 200);
-    }
-
-    // Key table row counts
-    const tables = ['Booking', 'Mentor', 'TeamMember', 'AuditLog', 'Category', 'ChatThread', 'Notification', 'EmailDeliveryLog', 'OtpCode', 'Review', 'Complaint', 'BlockedDate'];
-    diagnostics.TABLE_COUNTS = {};
-    for (const table of tables) {
-      try {
-        const result = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "${table}"`);
-        diagnostics.TABLE_COUNTS[table] = result[0]?.count;
-      } catch (e) {
-        diagnostics.TABLE_COUNTS[table] = 'DOES_NOT_EXIST';
-      }
-    }
-
-    // _prisma_migrations
-    try {
-      const migrations = await prisma.$queryRaw`SELECT migration_name FROM _prisma_migrations ORDER BY started_at`;
-      diagnostics.PRISMA_MIGRATIONS = migrations.map(m => m.migration_name);
-    } catch (e) {
-      diagnostics.PRISMA_MIGRATIONS = 'TABLE_DOES_NOT_EXIST';
-    }
-
-    res.json(diagnostics);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
   }
 });
 

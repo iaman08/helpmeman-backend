@@ -1,5 +1,5 @@
 const axios = require('axios');
-const prisma = require('../config/database');
+const prisma = require('../config/prisma');
 
 /**
  * Fetch Codeforces Stats
@@ -365,11 +365,10 @@ exports.getSavedProfile = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, profile: true },
+      select: { id: true, name: true, email: true, mentorProfile: true },
     });
 
-    // Extract saved handles from profile metadata if present
-    const metadata = user?.profile?.metadata || {};
+    const metadata = (user?.mentorProfile?.personality && typeof user.mentorProfile.personality === 'object') ? user.mentorProfile.personality : {};
     const cpHandles = metadata.cpHandles || {
       codeforces: '',
       leetcode: '',
@@ -407,33 +406,38 @@ exports.saveHandles = async (req, res) => {
 
     const { codeforces, leetcode, codechef } = req.body || {};
 
-    // Get current profile
-    const existingProfile = await prisma.profile.findUnique({
-      where: { userId },
+    const profile = await prisma.mentorProfile.findUnique({
+      where: { mentorId: userId },
     });
 
-    const currentMetadata = existingProfile?.metadata || {};
-    const updatedMetadata = {
-      ...currentMetadata,
-      cpHandles: {
-        codeforces: (codeforces || '').trim(),
-        leetcode: (leetcode || '').trim(),
-        codechef: (codechef || '').trim(),
-        updatedAt: new Date().toISOString(),
-      },
+    const currentPersonality = (profile?.personality && typeof profile.personality === 'object') ? profile.personality : {};
+    const cpHandles = {
+      codeforces: (codeforces || '').trim(),
+      leetcode: (leetcode || '').trim(),
+      codechef: (codechef || '').trim(),
+      updatedAt: new Date().toISOString(),
     };
 
-    if (existingProfile) {
-      await prisma.profile.update({
-        where: { userId },
-        data: { metadata: updatedMetadata },
+    if (profile) {
+      await prisma.mentorProfile.update({
+        where: { mentorId: userId },
+        data: { personality: { ...currentPersonality, cpHandles } },
+      });
+    } else {
+      await prisma.mentorProfile.create({
+        data: {
+          mentorId: userId,
+          skills: [],
+          expertiseTags: [],
+          personality: { cpHandles },
+        },
       });
     }
 
     return res.status(200).json({
       success: true,
       message: 'Competitive programming handles saved successfully.',
-      data: updatedMetadata.cpHandles,
+      data: cpHandles,
     });
   } catch (error) {
     console.error('[CP Controller] saveHandles error:', error);

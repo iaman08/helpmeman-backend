@@ -213,12 +213,62 @@ async function getAllUsers(req, res) {
     if (status && ['ACTIVE', 'ON_HOLD', 'DISABLED', 'DELETED'].includes(status)) where.status = status;
     const parsedPage = parseInt(page) || 1;
     const parsedLimit = Math.min(parseInt(limit) || 20, 100);
-    const [users, total] = await Promise.all([
-      prisma.user.findMany({ where, select: { id: true, name: true, email: true, role: true, status: true, createdAt: true, isEmailVerified: true }, orderBy: { createdAt: 'desc' }, skip: (parsedPage - 1) * parsedLimit, take: parsedLimit }),
+    const [rawUsers, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          isEmailVerified: true,
+          lastSeen: true,
+          presenceStatus: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (parsedPage - 1) * parsedLimit,
+        take: parsedLimit,
+      }),
       prisma.user.count({ where }),
     ]);
+
+    // Lookup latest audit event per user for last IP and browser
+    const userIds = rawUsers.map(u => u.id);
+    let logMap = new Map();
+    if (userIds.length > 0) {
+      try {
+        const latestLogs = await prisma.auditLog.findMany({
+          where: { actorId: { in: userIds } },
+          orderBy: { createdAt: 'desc' },
+          distinct: ['actorId'],
+          select: { actorId: true, ip: true, userAgent: true, metadata: true, createdAt: true },
+        });
+        logMap = new Map(latestLogs.map(l => [l.actorId, l]));
+      } catch (logErr) {
+        console.warn('[ADMIN] Could not fetch latest user logs:', logErr.message);
+      }
+    }
+
+    const users = rawUsers.map(u => {
+      const log = logMap.get(u.id);
+      const meta = (log?.metadata && typeof log.metadata === 'object') ? log.metadata : {};
+      return {
+        ...u,
+        lastIp: log?.ip || null,
+        lastBrowser: meta.browser || null,
+        lastOs: meta.os || null,
+        lastDeviceType: meta.deviceType || null,
+        lastLoginAt: log?.createdAt || u.lastSeen,
+      };
+    });
+
     res.json({ users, total, page: parsedPage, totalPages: Math.ceil(total / parsedLimit) });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[ADMIN] getAllUsers error:', e);
+    res.status(500).json({ error: 'Failed to retrieve users' });
+  }
 }
 
 async function setUserStatusHandler(req, res) {

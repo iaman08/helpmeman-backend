@@ -298,8 +298,10 @@ async function retryFailedEmails(limit = 25) {
 }
 
 async function sendOtpEmail({ email, name, otp, purpose = 'verify' }) {
-  // ALWAYS log OTP — works as fallback even when email delivery fails
-  console.log(`\n🔐 [OTP] ${purpose.toUpperCase()} code for ${email}: \x1b[33m${otp}\x1b[0m\n`);
+  // Only log OTP in non-production environments to avoid log leakage
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`\n🔐 [OTP] ${purpose.toUpperCase()} code for ${email}: \x1b[33m${otp}\x1b[0m\n`);
+  }
   
   let html;
   try {
