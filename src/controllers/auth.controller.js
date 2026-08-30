@@ -412,50 +412,6 @@ async function login(req, res) {
   const { email, password } = req.body;
   console.log(`[AUTH] Login attempt initiated for: ${email}`);
   try {
-    // Local development bypass for seeded demo accounts
-    if (process.env.NODE_ENV === 'development' && 
-        ['admin@helpmeman.com', 'student@helpmeman.com', 'mentor@helpmeman.com', 'official.diljha@gmail.com', 'aman@helpmeman.com'].includes(email.toLowerCase()) &&
-        (password === 'Admin@4321' || password === 'password123' || password === 'mock123')) {
-        
-      const role = (email.toLowerCase() === 'official.diljha@gmail.com' || email.toLowerCase() === 'aman@helpmeman.com') ? 'SUPER_ADMIN' :
-                   email.toLowerCase() === 'admin@helpmeman.com' ? 'ADMIN' :
-                   email.toLowerCase() === 'mentor@helpmeman.com' ? 'MENTOR' : 'STUDENT';
-                   
-      const localUser = await prisma.user.findFirst({
-        where: { email: email.toLowerCase() }
-      });
-      
-      if (localUser) {
-        let mentorData = null;
-        if (role === 'MENTOR') {
-          mentorData = await prisma.mentor.findUnique({
-            where: { userId: localUser.id },
-            select: { id: true, approvalStatus: true, isActive: true }
-          });
-        }
-        
-        const tokenRole = role === 'STUDENT' ? 'student' : role.toLowerCase();
-        
-        console.log(`[AUTH] Demo login completed successfully for user: ${email}`);
-        return res.json({
-          user: {
-            id: localUser.id,
-            name: localUser.name,
-            email: localUser.email,
-            role: localUser.role,
-            avatar: localUser.avatar,
-            onboardingRole: localUser.onboardingRole || null,
-            username: localUser.username || null,
-            currentRole: localUser.currentRole || null,
-            currency: localUser.currency || null,
-          },
-          mentor: mentorData,
-          accessToken: `demo_${tokenRole}_token`,
-          refreshToken: 'demo_refresh_token',
-        });
-      }
-    }
-
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase(),
       password,
@@ -562,20 +518,6 @@ async function refresh(req, res) {
     const { refreshToken } = req.body;
     if (!refreshToken) {
       return res.status(400).json({ error: 'Refresh token is required' });
-    }
-
-    if (process.env.NODE_ENV === 'development' && refreshToken === 'demo_refresh_token') {
-      let roleToken = 'demo_student_token';
-      const authHeader = req.headers.authorization;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const currentToken = authHeader.split(' ')[1];
-        if (currentToken === 'demo_mentor_token') roleToken = 'demo_mentor_token';
-        else if (currentToken === 'demo_admin_token') roleToken = 'demo_admin_token';
-      }
-      return res.json({
-        accessToken: roleToken,
-        refreshToken: 'demo_refresh_token',
-      });
     }
 
     const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
