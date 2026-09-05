@@ -57,6 +57,14 @@ async function uploadDocument(file, folder = 'docs') {
   return uploadFileToSupabase(file, folder);
 }
 
+const MAX_BUG_MEDIA_SIZE = 50 * 1024 * 1024; // 50MB
+
+async function uploadBugMedia(file, folder = 'bug-reports') {
+  if (!file) throw new Error('No file provided');
+  if (file.size > MAX_BUG_MEDIA_SIZE) throw new Error('File exceeds 50MB limit');
+  return uploadFileToSupabase(file, folder);
+}
+
 async function deleteFile(fileUrl) {
   try {
     if (!fileUrl) return;
@@ -69,4 +77,4 @@ async function deleteFile(fileUrl) {
   }
 }
 
-module.exports = { uploadImage, uploadDocument, deleteFile, validateFile };
+module.exports = { uploadImage, uploadDocument, uploadBugMedia, deleteFile, validateFile };

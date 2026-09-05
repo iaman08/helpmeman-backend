@@ -58,6 +58,7 @@ const resumeRoastRoutes = require('./routes/resumeRoast.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const aptitudeTestRoutes = require('./routes/aptitudeTest.routes');
 const cpProfileRoutes = require('./routes/cpProfile.routes');
+const bugReportRoutes = require('./routes/bugReport.routes');
 
 const app = express();
 // Enable proxy trust across multi-tier reverse proxies (Cloudflare + DigitalOcean Load Balancer)
@@ -197,6 +198,14 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Normalize duplicate /api prefixes (e.g. /api/api/* -> /api/*) from misconfigured clients/proxies
+app.use((req, res, next) => {
+  if (req.url.startsWith('/api/api/')) {
+    req.url = req.url.replace('/api/api/', '/api/');
+  }
+  next();
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/v2/auth', securedAuthRoutes);
@@ -222,6 +231,7 @@ app.use('/api/platform-reviews', platformReviewRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/aptitude-test', aptitudeTestRoutes);
 app.use('/api/cp', cpProfileRoutes);
+app.use('/api/bugs', bugReportRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {
