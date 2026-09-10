@@ -165,6 +165,10 @@ async function postMessage(req, res) {
       : thread.userId === req.user.id;
     if (!authorized) return res.status(403).json({ error: 'Forbidden' });
 
+    if (thread.isBlockedByMentee || thread.isBlockedByMentor) {
+      return res.status(403).json({ error: 'This conversation has been blocked' });
+    }
+
     const recipientUserId = isMentor ? thread.userId : thread.mentor?.userId;
     const isRecipientOnline = req.app.io?.onlineUsers?.has(recipientUserId) || false;
 
@@ -426,6 +430,140 @@ async function getUnreadCount(req, res) {
   }
 }
 
+// ─── POST /chat/threads/:threadId/block ──────────────────────────────────────
+async function blockThreadHandler(req, res) {
+  try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const isMentor = req.user.role === 'MENTOR';
+    const fieldToUpdate = isMentor ? 'isBlockedByMentor' : 'isBlockedByMentee';
+
+    const thread = await prisma.chatThread.update({
+      where: { id: req.params.threadId },
+      data: { [fieldToUpdate]: true },
+      include: {
+        user: { select: { id: true, name: true, username: true, email: true, avatar: true, role: true } },
+        mentor: { select: { displayName: true, avatar: true, id: true, userId: true } },
+      }
+    });
+
+    emitTo(req, `chat:${req.params.threadId}`, 'thread_updated', {
+      threadId: req.params.threadId,
+      thread,
+    });
+
+    const recipientUserId = isMentor ? thread.userId : thread.mentor?.userId;
+    if (recipientUserId) {
+      emitTo(req, `user:${recipientUserId}`, 'thread_updated', { threadId: req.params.threadId, thread });
+    }
+    emitTo(req, `user:${req.user.id}`, 'thread_updated', { threadId: req.params.threadId, thread });
+
+    res.json({ success: true, thread });
+  } catch (e) {
+    console.error('[CHAT] blockThreadHandler error:', e);
+    res.status(500).json({ error: 'Failed to block thread' });
+  }
+}
+
+// ─── POST /chat/threads/:threadId/unblock ────────────────────────────────────
+async function unblockThreadHandler(req, res) {
+  try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const isMentor = req.user.role === 'MENTOR';
+    const fieldToUpdate = isMentor ? 'isBlockedByMentor' : 'isBlockedByMentee';
+
+    const thread = await prisma.chatThread.update({
+      where: { id: req.params.threadId },
+      data: { [fieldToUpdate]: false },
+      include: {
+        user: { select: { id: true, name: true, username: true, email: true, avatar: true, role: true } },
+        mentor: { select: { displayName: true, avatar: true, id: true, userId: true } },
+      }
+    });
+
+    emitTo(req, `chat:${req.params.threadId}`, 'thread_updated', {
+      threadId: req.params.threadId,
+      thread,
+    });
+
+    const recipientUserId = isMentor ? thread.userId : thread.mentor?.userId;
+    if (recipientUserId) {
+      emitTo(req, `user:${recipientUserId}`, 'thread_updated', { threadId: req.params.threadId, thread });
+    }
+    emitTo(req, `user:${req.user.id}`, 'thread_updated', { threadId: req.params.threadId, thread });
+
+    res.json({ success: true, thread });
+  } catch (e) {
+    console.error('[CHAT] unblockThreadHandler error:', e);
+    res.status(500).json({ error: 'Failed to unblock thread' });
+  }
+}
+
+// ─── POST /chat/threads/:threadId/mute ───────────────────────────────────────
+async function muteThreadHandler(req, res) {
+  try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const isMentor = req.user.role === 'MENTOR';
+    const fieldToUpdate = isMentor ? 'isMutedByMentor' : 'isMutedByMentee';
+
+    const thread = await prisma.chatThread.update({
+      where: { id: req.params.threadId },
+      data: { [fieldToUpdate]: true },
+      include: {
+        user: { select: { id: true, name: true, username: true, email: true, avatar: true, role: true } },
+        mentor: { select: { displayName: true, avatar: true, id: true, userId: true } },
+      }
+    });
+
+    emitTo(req, `chat:${req.params.threadId}`, 'thread_updated', {
+      threadId: req.params.threadId,
+      thread,
+    });
+    emitTo(req, `user:${req.user.id}`, 'thread_updated', { threadId: req.params.threadId, thread });
+
+    res.json({ success: true, thread });
+  } catch (e) {
+    console.error('[CHAT] muteThreadHandler error:', e);
+    res.status(500).json({ error: 'Failed to mute thread' });
+  }
+}
+
+// ─── POST /chat/threads/:threadId/unmute ─────────────────────────────────────
+async function unmuteThreadHandler(req, res) {
+  try {
+    const access = await checkThreadAccess(req.params.threadId, req.user);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+
+    const isMentor = req.user.role === 'MENTOR';
+    const fieldToUpdate = isMentor ? 'isMutedByMentor' : 'isMutedByMentee';
+
+    const thread = await prisma.chatThread.update({
+      where: { id: req.params.threadId },
+      data: { [fieldToUpdate]: false },
+      include: {
+        user: { select: { id: true, name: true, username: true, email: true, avatar: true, role: true } },
+        mentor: { select: { displayName: true, avatar: true, id: true, userId: true } },
+      }
+    });
+
+    emitTo(req, `chat:${req.params.threadId}`, 'thread_updated', {
+      threadId: req.params.threadId,
+      thread,
+    });
+    emitTo(req, `user:${req.user.id}`, 'thread_updated', { threadId: req.params.threadId, thread });
+
+    res.json({ success: true, thread });
+  } catch (e) {
+    console.error('[CHAT] unmuteThreadHandler error:', e);
+    res.status(500).json({ error: 'Failed to unmute thread' });
+  }
+}
+
 module.exports = {
   createThread,
   listThreads,
@@ -439,4 +577,8 @@ module.exports = {
   addReactionHandler,
   removeReactionHandler,
   getUnreadCount,
+  blockThreadHandler,
+  unblockThreadHandler,
+  muteThreadHandler,
+  unmuteThreadHandler,
 };

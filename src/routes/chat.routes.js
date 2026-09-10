@@ -14,6 +14,10 @@ router.post('/threads', chat.createThread);
 router.get('/threads', chat.listThreads);
 router.get('/threads/:threadId', chat.getThread);
 router.post('/threads/:threadId/close', chat.closeThreadHandler);
+router.post('/threads/:threadId/block', chat.blockThreadHandler);
+router.post('/threads/:threadId/unblock', chat.unblockThreadHandler);
+router.post('/threads/:threadId/mute', chat.muteThreadHandler);
+router.post('/threads/:threadId/unmute', chat.unmuteThreadHandler);
 
 // Messages (paginated)
 router.get('/threads/:threadId/messages', chat.getMessages);

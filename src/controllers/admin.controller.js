@@ -1,6 +1,7 @@
 const { approveMentor, rejectMentor } = require('../services/mentorApproval.service');
 const prisma = require('../config/prisma');
 const { logAuditEvent, getClientIp } = require('../services/auditLog.service');
+const { deleteSingleMentor, deleteAllMentors } = require('../services/mentorDeletion.service');
 
 async function getDashboard(req, res) {
   try {
@@ -189,6 +190,9 @@ async function getAllMentors(req, res) {
 async function toggleMentorActive(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { id: req.params.id } });
+    if (!mentor) {
+      return res.status(404).json({ error: 'Mentor not found' });
+    }
     const updated = await prisma.mentor.update({ where: { id: req.params.id }, data: { isActive: !mentor.isActive } });
     await logAuditEvent({
       action: 'MENTOR_TOGGLED',
@@ -200,7 +204,10 @@ async function toggleMentorActive(req, res) {
       metadata: { actorEmail: req.user.email, isActive: updated.isActive },
     });
     res.json({ mentor: updated });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error('[ADMIN] toggleMentorActive error:', e);
+    res.status(500).json({ error: 'Failed' });
+  }
 }
 
 const { sendAccountStatusEmail } = require('../services/email.service');
@@ -405,4 +412,40 @@ async function getChatStats(req, res) {
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }
 
-module.exports = { getDashboard, getPendingMentors, getMentorDetail, approveMentorHandler, rejectMentorHandler, getAllMentors, toggleMentorActive, getAllUsers, setUserStatusHandler, getAllBookings, getCategories, createCategory, updateCategory, getEarnings, getAllReviews, getChatStats };
+async function deleteMentorHandler(req, res) {
+  try {
+    const { id } = req.params;
+    const result = await deleteSingleMentor(id, {
+      actorId: req.user.id,
+      actorEmail: req.user.email,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+    });
+    res.json({ success: true, message: 'Mentor deleted successfully', ...result });
+  } catch (e) {
+    console.error('[ADMIN] deleteMentorHandler error:', e);
+    if (e.message === 'Mentor not found') {
+      return res.status(404).json({ error: 'Mentor not found' });
+    }
+    res.status(500).json({ error: e.message || 'Failed to delete mentor' });
+  }
+}
+
+async function deleteAllMentorsHandler(req, res) {
+  try {
+    const result = await deleteAllMentors({
+      actorId: req.user.id,
+      actorEmail: req.user.email,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+    });
+    res.json({ success: true, message: `Successfully deleted ${result.count} mentors`, count: result.count });
+  } catch (e) {
+    console.error('[ADMIN] deleteAllMentorsHandler error:', e);
+    res.status(500).json({ error: e.message || 'Failed to delete all mentors' });
+  }
+}
+
+module.exports = { getDashboard, getPendingMentors, getMentorDetail, approveMentorHandler, rejectMentorHandler, getAllMentors, toggleMentorActive, deleteMentorHandler, deleteAllMentorsHandler, getAllUsers, setUserStatusHandler, getAllBookings, getCategories, createCategory, updateCategory, getEarnings, getAllReviews, getChatStats };
