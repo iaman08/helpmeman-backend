@@ -4,6 +4,7 @@ const multer = require('multer');
 const { authenticate } = require('../middleware/auth');
 const { roleGuard } = require('../middleware/roleGuard');
 const user = require('../controllers/user.controller');
+const privacy = require('../controllers/privacy.controller');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -29,5 +30,13 @@ router.put('/me/notification-preferences', user.updateNotificationPrefs);
 router.post('/me/devices', user.registerUserDevice);
 router.delete('/me/devices', user.removeUserDevice);
 router.post('/me/complaints', upload.single('proof'), user.submitComplaint);
+
+// DPDP Act 2023 Statutory Privacy Routes
+router.get('/me/data-export', privacy.exportPersonalData);
+router.get('/me/privacy-preferences', privacy.getPrivacyPreferences);
+router.put('/me/privacy-preferences', privacy.updatePrivacyPreferences);
+router.delete('/me/ai-memory', privacy.clearAiMemory);
+router.post('/me/privacy-grievance', privacy.submitPrivacyGrievance);
+router.post('/me/delete-account', privacy.deleteAccount);
 
 module.exports = router;
