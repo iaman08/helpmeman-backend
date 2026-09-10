@@ -48,6 +48,8 @@ const loginSchema = z.object({
   body: z.object({
     email: z.string().trim().toLowerCase().email('Invalid email address format'),
     password: z.string().min(1, 'Password is required'),
+    captchaId: z.string().optional(),
+    captchaAnswer: z.string().optional(),
   }),
 });
 

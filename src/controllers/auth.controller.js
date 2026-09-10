@@ -9,6 +9,7 @@ const { sendEmail, sendOtpEmail, sendWelcomeEmail, sendVerifyEmail, sendPassword
 const { sendNotification } = require('../services/notification.service');
 const { saveUserProfile, getUserProfile } = require('../services/userProfile.service');
 const config = require('../config/env');
+const captchaService = require('../services/captcha.service');
 const crypto = require('crypto');
 const https = require('https');
 
@@ -410,8 +411,30 @@ async function verifyEmail(req, res) {
 
 // POST /api/auth/login
 async function login(req, res) {
-  const { email, password } = req.body;
+  const { email, password, captchaId, captchaAnswer } = req.body;
   console.log(`[AUTH] Login attempt initiated for: ${email}`);
+
+  // Enforce CAPTCHA verification
+  const captchaCheck = captchaService.verifyCaptcha(captchaId, captchaAnswer);
+  if (!captchaCheck.valid) {
+    try {
+      const { logAuditEvent } = require('../services/auditLog.service');
+      logAuditEvent({
+        action: 'LOGIN_FAILED_CAPTCHA',
+        actorId: (email || 'anonymous').toLowerCase(),
+        req,
+        isSuspicious: true,
+        flagReason: captchaCheck.reason,
+        metadata: { attemptedEmail: (email || '').toLowerCase() },
+      }).catch(() => {});
+    } catch (e) {}
+
+    return res.status(400).json({
+      error: captchaCheck.reason,
+      code: 'INVALID_CAPTCHA',
+    });
+  }
+
   try {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase(),
@@ -968,5 +991,15 @@ async function changePassword(req, res) {
 }
 
 
-module.exports = { register, verifySignupOTP, registerMentor, verifyMentorOTP, verifyEmail, login, googleLogin, refresh, logout, forgotPassword, verifyResetOTP, resetPassword, resendOTP, changePassword };
+function getCaptcha(req, res) {
+  try {
+    const captcha = captchaService.generateCaptcha();
+    return res.json(captcha);
+  } catch (err) {
+    console.error('[CAPTCHA] Failed to generate challenge:', err.message);
+    return res.status(500).json({ error: 'Failed to generate verification challenge' });
+  }
+}
+
+module.exports = { register, verifySignupOTP, registerMentor, verifyMentorOTP, verifyEmail, login, googleLogin, refresh, logout, forgotPassword, verifyResetOTP, resetPassword, resendOTP, changePassword, getCaptcha };
 

@@ -51,6 +51,7 @@ model User {
   twoFactorEnabled         Boolean          @default(false)
   twoFactorSecret          String?
   platformReviews          PlatformReview[]
+  passkeys                 PasskeyCredential[]
 
   @@index([username])
 }
@@ -626,5 +627,35 @@ model BugReport {
   updatedAt         DateTime @updatedAt
 
   @@index([status, createdAt])
+}
+
+model PasskeyCredential {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      BigInt   @default(0)
+  deviceType   String?
+  backedUp     Boolean  @default(false)
+  transports   String[] @default([])
+  nickname     String?
+  lastUsedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+model WebauthnChallenge {
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String?
+  challenge String
+  purpose   String   // 'registration' | 'authentication'
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@index([challenge])
 }
 

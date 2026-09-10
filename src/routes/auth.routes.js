@@ -16,12 +16,14 @@ const {
 const auth = require('../controllers/auth.controller');
 
 const twoFactor = require('../controllers/twoFactor.controller');
+const webauthn = require('../controllers/webauthn.controller');
 
 router.post('/register', authLimiter, validate(registerSchema), auth.register);
 router.post('/verify-signup-otp', otpLimiter, validate(verifyOtpSchema), auth.verifySignupOTP);
 router.post('/register/mentor', authLimiter, validate(registerSchema), auth.registerMentor);
 router.post('/verify-mentor-otp', authLimiter, validate(verifyOtpSchema), auth.verifyMentorOTP);
 router.post('/verify-email', authLimiter, auth.verifyEmail);
+router.get('/captcha', authLimiter, auth.getCaptcha);
 router.post('/login', authLimiter, validate(loginSchema), auth.login);
 router.post('/google', authLimiter, auth.googleLogin);
 router.post('/refresh', authLimiter, validate(refreshTokenSchema), auth.refresh);
@@ -36,6 +38,14 @@ router.get('/2fa/setup', authenticate, twoFactor.setup2FA);
 router.post('/2fa/enable', authenticate, twoFactor.enable2FA);
 router.post('/2fa/disable', authenticate, twoFactor.disable2FA);
 router.post('/2fa/verify-login', authLimiter, twoFactor.verify2FALogin);
+
+// WebAuthn / Passkey & Security Key Routes (FIDO2)
+router.get('/webauthn/register-options', webauthn.getRegistrationOptions);
+router.post('/webauthn/register-verify', webauthn.verifyRegistration);
+router.post('/webauthn/login-options', authLimiter, webauthn.getLoginOptions);
+router.post('/webauthn/login-verify', authLimiter, webauthn.verifyLogin);
+router.get('/webauthn/credentials', authenticate, webauthn.listCredentials);
+router.delete('/webauthn/credentials/:id', authenticate, webauthn.deleteCredential);
 
 // Protected: must be authenticated.
 router.post('/change-password', authenticate, validate(changePasswordSchema), auth.changePassword);
