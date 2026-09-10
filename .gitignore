@@ -23,3 +23,4 @@ migration-log.txt
 scratch/
 prisma_generated.flag
 credentials_PRIVATE_DO_NOT_COMMIT.txt
+*.png

@@ -62,6 +62,10 @@ async function sendMessage(threadId, senderId, senderRole, body, isRecipientOnli
   const thread = await prisma.chatThread.findUnique({ where: { id: threadId } });
   if (!thread) throw new Error('THREAD_NOT_FOUND');
 
+  if (thread.isBlockedByMentee || thread.isBlockedByMentor) {
+    const err = new Error('THREAD_BLOCKED'); err.status = 403; throw err;
+  }
+
   const isUser = senderRole === 'USER';
 
   // Lock and limit checks ONLY apply to user (student/mentee), not mentors
@@ -127,11 +131,15 @@ async function sendMessage(threadId, senderId, senderRole, body, isRecipientOnli
   const emailBody = `You have ${unreadCount} unread message${unreadCount !== 1 ? 's' : ''}. Latest: "${preview}"`;
 
   if (isUser) {
-    sendNotification({ mentorId: thread.mentorId, type: 'CHAT_MESSAGE', title: 'New message received', body: emailBody, sendEmail: !isRecipientOnline })
-      .catch(err => console.error('[CHAT] Notification async error:', err));
+    if (!thread.isMutedByMentor) {
+      sendNotification({ mentorId: thread.mentorId, type: 'CHAT_MESSAGE', title: 'New message received', body: emailBody, sendEmail: !isRecipientOnline })
+        .catch(err => console.error('[CHAT] Notification async error:', err));
+    }
   } else {
-    sendNotification({ userId: thread.userId, type: 'CHAT_REPLY', title: 'Your mentor replied', body: emailBody, sendEmail: !isRecipientOnline })
-      .catch(err => console.error('[CHAT] Notification async error:', err));
+    if (!thread.isMutedByMentee) {
+      sendNotification({ userId: thread.userId, type: 'CHAT_REPLY', title: 'Your mentor replied', body: emailBody, sendEmail: !isRecipientOnline })
+        .catch(err => console.error('[CHAT] Notification async error:', err));
+    }
   }
 
   if (senderRole === 'MENTOR') {

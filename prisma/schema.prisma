@@ -235,6 +235,10 @@ model ChatThread {
   mentorMsgCount     Int          @default(0)
   isLockedForBooking Boolean      @default(false)
   bookingId          String?
+  isBlockedByMentee  Boolean      @default(false)
+  isBlockedByMentor  Boolean      @default(false)
+  isMutedByMentee    Boolean      @default(false)
+  isMutedByMentor    Boolean      @default(false)
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
   messages           ChatMessage[]
