@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authLimiter, otpLimiter } = require('../middleware/rateLimiter');
+const { authLimiter, otpLimiter, generalLimiter } = require('../middleware/rateLimiter');
 const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const {
@@ -23,7 +23,7 @@ router.post('/verify-signup-otp', otpLimiter, validate(verifyOtpSchema), auth.ve
 router.post('/register/mentor', authLimiter, validate(registerSchema), auth.registerMentor);
 router.post('/verify-mentor-otp', authLimiter, validate(verifyOtpSchema), auth.verifyMentorOTP);
 router.post('/verify-email', authLimiter, auth.verifyEmail);
-router.get('/captcha', authLimiter, auth.getCaptcha);
+router.get('/captcha', generalLimiter, auth.getCaptcha);
 router.post('/login', authLimiter, validate(loginSchema), auth.login);
 router.post('/google', authLimiter, auth.googleLogin);
 router.post('/refresh', authLimiter, validate(refreshTokenSchema), auth.refresh);
