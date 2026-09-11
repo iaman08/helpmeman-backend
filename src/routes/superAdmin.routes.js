@@ -38,4 +38,10 @@ router.get('/role-counts', superAdmin.getRoleCounts);
 router.get('/dashboard-stats', superAdmin.getDashboardStats);
 router.get('/system-health', superAdmin.getSystemHealth);
 
+// ── Deletion Request Approval Routes ─────────────────────────────────────────
+router.get('/deletion-requests', superAdmin.listDeletionRequestsHandler);
+router.get('/deletion-requests/pending-count', superAdmin.getPendingDeletionCountHandler);
+router.post('/deletion-requests/:id/approve', superAdmin.approveDeletionRequestHandler);
+router.post('/deletion-requests/:id/reject', superAdmin.rejectDeletionRequestHandler);
+
 module.exports = router;

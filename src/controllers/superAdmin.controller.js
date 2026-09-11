@@ -9,6 +9,12 @@ const prisma = require('../config/prisma');
 const { canManageRole, ROLE_LEVELS, VALID_ROLES } = require('../middleware/rbac');
 const { logAuditEvent, getClientIp, getAuditLogs } = require('../services/auditLog.service');
 const { invalidateCachedUser } = require('../services/auth.service');
+const {
+  approveDeletionRequest,
+  rejectDeletionRequest,
+  getPendingRequestsCount,
+  listDeletionRequests,
+} = require('../services/userDeletion.service');
 
 /**
  * GET /api/super-admin/users
@@ -35,7 +41,7 @@ async function listAllUsers(req, res) {
     const parsedPage = parseInt(page) || 1;
     const parsedLimit = Math.min(parseInt(limit) || 50, 200);
 
-    const [users, total] = await Promise.all([
+    const [rawUsers, total] = await Promise.all([
       prisma.user.findMany({
         where,
         select: {
@@ -54,6 +60,31 @@ async function listAllUsers(req, res) {
       }),
       prisma.user.count({ where }),
     ]);
+
+    const userIds = rawUsers.map(u => u.id);
+    let pendingDeletionMap = new Map();
+    if (userIds.length > 0) {
+      try {
+        const pendingRequests = await prisma.userDeletionRequest.findMany({
+          where: { userId: { in: userIds }, status: 'PENDING' },
+          select: {
+            id: true,
+            userId: true,
+            reason: true,
+            createdAt: true,
+            requestedBy: { select: { id: true, name: true, email: true } },
+          },
+        });
+        pendingDeletionMap = new Map(pendingRequests.map(r => [r.userId, r]));
+      } catch (delErr) {
+        console.warn('[SUPER_ADMIN] Could not fetch pending deletion requests:', delErr.message);
+      }
+    }
+
+    const users = rawUsers.map(u => ({
+      ...u,
+      pendingDeletion: pendingDeletionMap.get(u.id) || null,
+    }));
 
     res.json({
       users,
@@ -308,4 +339,70 @@ async function getSystemHealth(req, res) {
   }
 }
 
-module.exports = { listAllUsers, changeUserRole, viewAuditLogs, getRoleCounts, getDashboardStats, getSystemHealth };
+async function listDeletionRequestsHandler(req, res) {
+  try {
+    const { status, q, page, limit } = req.query;
+    const result = await listDeletionRequests({ status, q, page, limit });
+    res.json(result);
+  } catch (error) {
+    console.error('[SUPER_ADMIN] listDeletionRequestsHandler error:', error);
+    res.status(500).json({ error: 'Failed to list deletion requests' });
+  }
+}
+
+async function getPendingDeletionCountHandler(req, res) {
+  try {
+    const count = await getPendingRequestsCount();
+    res.json({ count });
+  } catch (error) {
+    console.error('[SUPER_ADMIN] getPendingDeletionCountHandler error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending count' });
+  }
+}
+
+async function approveDeletionRequestHandler(req, res) {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const result = await approveDeletionRequest({
+      requestId: id,
+      reviewerId: req.user.id,
+      reviewNotes: notes,
+      req,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('[SUPER_ADMIN] approveDeletionRequestHandler error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to approve deletion request' });
+  }
+}
+
+async function rejectDeletionRequestHandler(req, res) {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const result = await rejectDeletionRequest({
+      requestId: id,
+      reviewerId: req.user.id,
+      rejectionReason: reason,
+      req,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('[SUPER_ADMIN] rejectDeletionRequestHandler error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to reject deletion request' });
+  }
+}
+
+module.exports = {
+  listAllUsers,
+  changeUserRole,
+  viewAuditLogs,
+  getRoleCounts,
+  getDashboardStats,
+  getSystemHealth,
+  listDeletionRequestsHandler,
+  getPendingDeletionCountHandler,
+  approveDeletionRequestHandler,
+  rejectDeletionRequestHandler,
+};

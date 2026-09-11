@@ -2,6 +2,7 @@ const { approveMentor, rejectMentor } = require('../services/mentorApproval.serv
 const prisma = require('../config/prisma');
 const { logAuditEvent, getClientIp } = require('../services/auditLog.service');
 const { deleteSingleMentor, deleteAllMentors } = require('../services/mentorDeletion.service');
+const { createDeletionRequest, listDeletionRequests } = require('../services/userDeletion.service');
 
 async function getDashboard(req, res) {
   try {
@@ -258,6 +259,25 @@ async function getAllUsers(req, res) {
       }
     }
 
+    let pendingDeletionMap = new Map();
+    if (userIds.length > 0) {
+      try {
+        const pendingRequests = await prisma.userDeletionRequest.findMany({
+          where: { userId: { in: userIds }, status: 'PENDING' },
+          select: {
+            id: true,
+            userId: true,
+            reason: true,
+            createdAt: true,
+            requestedBy: { select: { id: true, name: true, email: true } },
+          },
+        });
+        pendingDeletionMap = new Map(pendingRequests.map(r => [r.userId, r]));
+      } catch (delErr) {
+        console.warn('[ADMIN] Could not fetch pending deletion requests:', delErr.message);
+      }
+    }
+
     const users = rawUsers.map(u => {
       const log = logMap.get(u.id);
       const meta = (log?.metadata && typeof log.metadata === 'object') ? log.metadata : {};
@@ -268,6 +288,7 @@ async function getAllUsers(req, res) {
         lastOs: meta.os || null,
         lastDeviceType: meta.deviceType || null,
         lastLoginAt: log?.createdAt || u.lastSeen,
+        pendingDeletion: pendingDeletionMap.get(u.id) || null,
       };
     });
 
@@ -432,20 +453,62 @@ async function deleteMentorHandler(req, res) {
   }
 }
 
-async function deleteAllMentorsHandler(req, res) {
+async function requestUserDeletionHandler(req, res) {
   try {
-    const result = await deleteAllMentors({
-      actorId: req.user.id,
-      actorEmail: req.user.email,
-      endpoint: req.originalUrl,
-      ip: getClientIp(req),
-      userAgent: req.headers['user-agent'] || null,
+    const { id } = req.params;
+    const { reason } = req.body;
+    const request = await createDeletionRequest({
+      userId: id,
+      requestedById: req.user.id,
+      reason,
+      req,
     });
-    res.json({ success: true, message: `Successfully deleted ${result.count} mentors`, count: result.count });
-  } catch (e) {
-    console.error('[ADMIN] deleteAllMentorsHandler error:', e);
-    res.status(500).json({ error: e.message || 'Failed to delete all mentors' });
+    res.status(201).json({
+      success: true,
+      message: 'User deletion request submitted for Super Admin approval',
+      request,
+    });
+  } catch (error) {
+    console.error('[ADMIN] requestUserDeletionHandler error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to submit deletion request' });
   }
 }
 
-module.exports = { getDashboard, getPendingMentors, getMentorDetail, approveMentorHandler, rejectMentorHandler, getAllMentors, toggleMentorActive, deleteMentorHandler, deleteAllMentorsHandler, getAllUsers, setUserStatusHandler, getAllBookings, getCategories, createCategory, updateCategory, getEarnings, getAllReviews, getChatStats };
+async function getAdminDeletionRequestsHandler(req, res) {
+  try {
+    const { status, q, page, limit } = req.query;
+    const result = await listDeletionRequests({
+      status,
+      q,
+      page,
+      limit,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('[ADMIN] getAdminDeletionRequestsHandler error:', error);
+    res.status(500).json({ error: 'Failed to fetch deletion requests' });
+  }
+}
+
+module.exports = {
+  getDashboard,
+  getPendingMentors,
+  getMentorDetail,
+  approveMentorHandler,
+  rejectMentorHandler,
+  getAllMentors,
+  toggleMentorActive,
+  deleteMentorHandler,
+  deleteAllMentorsHandler,
+  getAllUsers,
+  setUserStatusHandler,
+  getAllBookings,
+  getCategories,
+  createCategory,
+  updateCategory,
+  getEarnings,
+  getAllReviews,
+  getChatStats,
+  requestUserDeletionHandler,
+  getAdminDeletionRequestsHandler,
+};

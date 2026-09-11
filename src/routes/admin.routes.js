@@ -21,6 +21,8 @@ router.put('/mentors/:id/toggle-active', admin.toggleMentorActive);
 router.post('/mentors/:id/toggle-active', admin.toggleMentorActive);
 router.get('/users', admin.getAllUsers);
 router.post('/users/:id/status', admin.setUserStatusHandler);
+router.post('/users/:id/request-deletion', admin.requestUserDeletionHandler);
+router.get('/users/deletion-requests', admin.getAdminDeletionRequestsHandler);
 router.get('/bookings', admin.getAllBookings);
 router.get('/categories', admin.getCategories);
 router.post('/categories', admin.createCategory);

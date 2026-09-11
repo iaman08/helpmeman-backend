@@ -298,7 +298,36 @@ if (process.env.NODE_ENV === 'production') {
     await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "MentorReview_createdAt_idx" ON "MentorReview"("createdAt" DESC);
     `);
-    console.log('[DB] MentorReview table schema verification complete ✓');
+    console.log('[DB] Verifying UserDeletionRequest table in PostgreSQL...');
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "UserDeletionRequest" (
+        "id" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "requestedById" TEXT NOT NULL,
+        "reason" TEXT NOT NULL,
+        "status" "ApprovalStatus" NOT NULL DEFAULT 'PENDING',
+        "reviewedById" TEXT,
+        "reviewNotes" TEXT,
+        "reviewedAt" TIMESTAMP(3),
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        CONSTRAINT "UserDeletionRequest_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "UserDeletionRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "UserDeletionRequest_requestedById_fkey" FOREIGN KEY ("requestedById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "UserDeletionRequest_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "UserDeletionRequest_userId_status_idx" ON "UserDeletionRequest"("userId", "status");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "UserDeletionRequest_status_createdAt_idx" ON "UserDeletionRequest"("status", "createdAt");
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "UserDeletionRequest_requestedById_idx" ON "UserDeletionRequest"("requestedById");
+    `);
+    console.log('[DB] UserDeletionRequest table schema verification complete ✓');
 
     console.log('[DB] Verification finished.');
   } catch (err) {
