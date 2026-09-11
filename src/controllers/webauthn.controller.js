@@ -26,9 +26,10 @@ async function resolveUser(req) {
   if (token) {
     try {
       const decoded = jwt.verify(token, config.jwtSecret);
-      if (decoded?.userId) {
+      const targetId = decoded?.userId || decoded?.id;
+      if (targetId) {
         return prisma.user.findUnique({
-          where: { id: decoded.userId },
+          where: { id: targetId },
           include: { mentor: true },
         });
       }

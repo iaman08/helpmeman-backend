@@ -19,15 +19,23 @@ function getRelyingPartyConfig(req) {
   let rpID = 'localhost';
   try {
     const parsed = new URL(effectiveOrigin);
-    rpID = parsed.hostname;
+    if (parsed.hostname === 'helpmeman.com' || parsed.hostname.endsWith('.helpmeman.com')) {
+      rpID = 'helpmeman.com';
+    } else {
+      rpID = parsed.hostname;
+    }
   } catch {
     rpID = 'localhost';
   }
 
   const expectedOrigin = [
     effectiveOrigin,
+    'https://helpmeman.com',
+    'https://www.helpmeman.com',
     'http://localhost:3000',
+    'http://localhost:8081',
     'http://127.0.0.1:3000',
+    'http://127.0.0.1:8081',
     frontendUrl,
   ].filter(Boolean);
 
