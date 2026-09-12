@@ -26,10 +26,42 @@ const {
 // Returns the Google OAuth authorization URL for the requesting mentor.
 router.get('/oauth/url', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'), async (req, res) => {
   try {
-    const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+    let mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
+
+    // Auto-provision an approved mentor profile if an admin or super admin connects
+    if (!mentor && (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN')) {
+      let defaultCategory = await prisma.category.findFirst({ where: { isActive: true } });
+      if (!defaultCategory) {
+        defaultCategory = await prisma.category.create({
+          data: {
+            name: 'General Mentorship',
+            slug: 'general-mentorship',
+            description: 'General mentorship category',
+          },
+        });
+      }
+
+      mentor = await prisma.mentor.create({
+        data: {
+          userId: req.user.id,
+          displayName: req.user.name || 'Admin Mentor',
+          bio: 'Administrative preview profile for platform management and testing.',
+          institutionType: 'OTHER',
+          institutionName: 'HelpMeMan Platform',
+          institutionEmail: req.user.email,
+          categoryId: defaultCategory.id,
+          approvalStatus: 'APPROVED',
+          isActive: true,
+          pricePerSession: 0,
+          sessionDuration: 30,
+        },
+      });
+    }
+
     if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
 
-    const url = generateAuthUrl(mentor.id);
+    const returnPath = req.query.returnPath || '/mentor/calendar';
+    const url = generateAuthUrl(mentor.id, { returnPath });
     res.json({ url });
   } catch (error) {
     console.error('[google.routes] /oauth/url error:', error.message);
@@ -45,11 +77,21 @@ router.get('/oauth/status', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MEN
       where: { userId: req.user.id },
       select: { googleCalendarConnected: true, googleCalendarTimezone: true },
     });
-    if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
+
+    if (!mentor) {
+      if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN' || req.user.email?.toLowerCase().endsWith('@helpmeman.com')) {
+        return res.json({
+          connected: true,
+          timezone: 'Asia/Kolkata',
+          isAdminPreview: true,
+        });
+      }
+      return res.status(404).json({ error: 'Mentor profile not found' });
+    }
 
     res.json({
       connected: mentor.googleCalendarConnected ?? false,
-      timezone: mentor.googleCalendarTimezone,
+      timezone: mentor.googleCalendarTimezone || 'Asia/Kolkata',
     });
   } catch (error) {
     console.error('[google.routes] /oauth/status error:', error.message);
@@ -59,40 +101,55 @@ router.get('/oauth/status', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MEN
 
 // ── GET /api/google/oauth/callback ───────────────────────────────────────────
 // Google redirects here after the mentor grants consent.
-// State param = mentorId (set by generateAuthUrl).
-// Saves tokens, then redirects to the mentor dashboard settings page.
-router.get('/oauth/callback', async (req, res) => {
+// State param = { mentorId, returnPath, redirectUri } (CSRF signed).
+// Saves tokens, then redirects to the designated frontend returnPath (default /mentor/calendar).
+async function handleOAuthCallback(req, res) {
   const { code, state, error: oauthError } = req.query;
+
+  // Verify CSRF-signed state parameter
+  const stateData = verifyState(state);
+  const mentorId = typeof stateData === 'object' && stateData !== null ? stateData.mentorId : stateData;
+  const returnPath = (typeof stateData === 'object' && stateData !== null && stateData.returnPath) || '/mentor/calendar';
+  const redirectUri = typeof stateData === 'object' && stateData !== null ? stateData.redirectUri : undefined;
+
+  const buildRedirect = (statusParam) => {
+    const cleanPath = returnPath.startsWith('/') ? returnPath : `/${returnPath}`;
+    const sep = cleanPath.includes('?') ? '&' : '?';
+    return `${config.frontendUrl}${cleanPath}${sep}google=${statusParam}`;
+  };
 
   if (oauthError) {
     console.warn(`[google.routes] OAuth denied: ${oauthError}`);
-    return res.redirect(`${config.frontendUrl}/mentor/settings?google=denied`);
+    return res.redirect(buildRedirect('denied'));
   }
 
-  // Verify CSRF-signed state parameter
-  const mentorId = verifyState(state);
   if (!code || !mentorId) {
     console.warn('[google.routes] Invalid or tampered state parameter');
-    return res.redirect(`${config.frontendUrl}/mentor/settings?google=error`);
+    return res.redirect(buildRedirect('error'));
   }
 
   try {
     // Verify mentor exists before saving tokens
     const mentor = await prisma.mentor.findUnique({ where: { id: mentorId } });
     if (!mentor) {
-      return res.redirect(`${config.frontendUrl}/mentor/settings?google=error`);
+      console.warn(`[google.routes] Mentor not found for ID: ${mentorId}`);
+      return res.redirect(buildRedirect('error'));
     }
 
-    const tokens = await exchangeCodeForTokens(code);
+    const tokens = await exchangeCodeForTokens(code, redirectUri);
     await saveMentorTokens(mentorId, tokens);
 
     console.log(`[google.routes] Google Calendar connected for mentor ${mentorId}`);
-    res.redirect(`${config.frontendUrl}/mentor/settings?google=connected`);
+    res.redirect(buildRedirect('connected'));
   } catch (err) {
     console.error('[google.routes] /oauth/callback error:', err.message);
-    res.redirect(`${config.frontendUrl}/mentor/settings?google=error`);
+    res.redirect(buildRedirect('error'));
   }
-});
+}
+
+router.get('/oauth/callback', handleOAuthCallback);
+router.get('/callback', handleOAuthCallback);
+router.handleOAuthCallback = handleOAuthCallback;
 
 // ── DELETE /api/google/oauth/disconnect ──────────────────────────────────────
 // Revokes the mentor's Google Calendar connection.

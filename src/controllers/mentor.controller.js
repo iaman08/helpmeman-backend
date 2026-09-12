@@ -408,7 +408,16 @@ async function getGoogleCalendarStatus(req, res) {
       where: { userId: req.user.id },
       select: { googleCalendarConnected: true, googleCalendarTimezone: true },
     });
-    if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
+    if (!mentor) {
+      if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN' || req.user.email?.toLowerCase().endsWith('@helpmeman.com')) {
+        return res.json({
+          connected: true,
+          timezone: 'Asia/Kolkata',
+          isAdminPreview: true,
+        });
+      }
+      return res.status(404).json({ error: 'Mentor profile not found' });
+    }
     res.json({
       connected: mentor.googleCalendarConnected ?? false,
       timezone: mentor.googleCalendarTimezone || 'Asia/Kolkata',

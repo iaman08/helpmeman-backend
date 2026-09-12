@@ -26,6 +26,15 @@ router.post('/verify-email', authLimiter, auth.verifyEmail);
 router.get('/captcha', generalLimiter, auth.getCaptcha);
 router.post('/login', authLimiter, validate(loginSchema), auth.login);
 router.post('/google', authLimiter, auth.googleLogin);
+
+// Google OAuth Calendar Callback alias (handles GOOGLE_REDIRECT_URI: /api/auth/google/callback)
+const googleRoutes = require('./google.routes');
+router.get('/google/callback', (req, res, next) => {
+  if (typeof googleRoutes.handleOAuthCallback === 'function') {
+    return googleRoutes.handleOAuthCallback(req, res, next);
+  }
+  next();
+});
 router.post('/refresh', authLimiter, validate(refreshTokenSchema), auth.refresh);
 router.post('/logout', authLimiter, auth.logout);
 router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), auth.forgotPassword);

@@ -14,39 +14,58 @@ const { encrypt, decrypt } = require('./tokenEncryption.service');
 
 /**
  * Build a per-request OAuth2 client using the platform credentials.
+ * @param {string} [customRedirectUri] - Optional override for callback redirect URI
  */
-function buildOAuth2Client() {
+function buildOAuth2Client(customRedirectUri) {
   return new google.auth.OAuth2(
     config.google.clientId,
     config.google.clientSecret,
-    config.google.redirectUri
+    customRedirectUri || config.google.redirectUri
   );
 }
 
 /**
  * Create a signed state parameter for OAuth CSRF protection.
- * Format: mentorId.signature
+ * Format: data.signature
+ * Accepts a mentorId string or an object { mentorId, returnPath, redirectUri }.
  */
-function signState(mentorId) {
+function signState(payload) {
   const secret = config.jwtSecret || config.google.clientSecret;
-  const signature = crypto.createHmac('sha256', secret).update(mentorId).digest('hex').slice(0, 16);
-  return `${mentorId}.${signature}`;
+  let dataStr;
+  if (typeof payload === 'object' && payload !== null) {
+    dataStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  } else {
+    dataStr = String(payload);
+  }
+  const signature = crypto.createHmac('sha256', secret).update(dataStr).digest('hex').slice(0, 16);
+  return `${dataStr}.${signature}`;
 }
 
 /**
- * Verify and extract mentorId from a signed state parameter.
- * Returns mentorId if valid, null otherwise.
+ * Verify and extract payload from a signed state parameter.
+ * Returns decoded object { mentorId, returnPath, redirectUri } or { mentorId } if valid, null otherwise.
  */
 function verifyState(state) {
   if (!state || !state.includes('.')) return null;
   const lastDot = state.lastIndexOf('.');
-  const mentorId = state.slice(0, lastDot);
+  const dataStr = state.slice(0, lastDot);
   const providedSig = state.slice(lastDot + 1);
   const secret = config.jwtSecret || config.google.clientSecret;
-  const expectedSig = crypto.createHmac('sha256', secret).update(mentorId).digest('hex').slice(0, 16);
+  const expectedSig = crypto.createHmac('sha256', secret).update(dataStr).digest('hex').slice(0, 16);
   try {
     const valid = crypto.timingSafeEqual(Buffer.from(providedSig), Buffer.from(expectedSig));
-    return valid ? mentorId : null;
+    if (!valid) return null;
+
+    // Try decoding base64url payload
+    try {
+      const jsonStr = Buffer.from(dataStr, 'base64url').toString('utf8');
+      if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
+        return JSON.parse(jsonStr);
+      }
+    } catch {}
+
+    // Fallback if plain mentorId string was signed
+    return { mentorId: dataStr };
   } catch {
     return null;
   }
@@ -55,10 +74,12 @@ function verifyState(state) {
 /**
  * Generate the Google OAuth consent URL for a mentor.
  * @param {string} mentorId  - The mentor's DB id (embedded in state param for security)
+ * @param {Object} [options] - { returnPath, redirectUri }
  * @returns {string} The authorization URL to redirect the mentor to.
  */
-function generateAuthUrl(mentorId) {
-  const oauth2Client = buildOAuth2Client();
+function generateAuthUrl(mentorId, options = {}) {
+  const { returnPath, redirectUri } = options;
+  const oauth2Client = buildOAuth2Client(redirectUri);
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',    // Request refresh_token
     prompt: 'consent',         // Always show consent — ensures refresh token is issued
@@ -66,17 +87,18 @@ function generateAuthUrl(mentorId) {
       'https://www.googleapis.com/auth/calendar.events',
       'https://www.googleapis.com/auth/calendar.readonly',
     ],
-    state: signState(mentorId), // CSRF-protected signed state
+    state: signState({ mentorId, returnPath, redirectUri }), // CSRF-protected signed state
   });
 }
 
 /**
  * Exchange a Google authorization code for access + refresh tokens.
  * @param {string} code - The `code` query param from Google's callback.
+ * @param {string} [customRedirectUri] - Matching redirect URI if different from config
  * @returns {Object} tokens — { access_token, refresh_token, expiry_date, ... }
  */
-async function exchangeCodeForTokens(code) {
-  const oauth2Client = buildOAuth2Client();
+async function exchangeCodeForTokens(code, customRedirectUri) {
+  const oauth2Client = buildOAuth2Client(customRedirectUri);
   const { tokens } = await oauth2Client.getToken(code);
   return tokens;
 }
