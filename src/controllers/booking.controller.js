@@ -16,11 +16,12 @@ const { sendNotification } = require('../services/notification.service');
 const { sendBookingConfirmationEmails } = require('../services/email.service');
 const config = require('../config/env');
 const exchangeRateService = require('../services/exchangeRate.service');
+const { validateCoupon, recordCouponUsage } = require('../services/coupon.service');
 
 // ── CREATE BOOKING ─────────────────────────────────────────────────────────────
 async function createBooking(req, res) {
   try {
-    const { mentorId, scheduledAt, durationMinutes = 30, currency } = req.body;
+    const { mentorId, scheduledAt, durationMinutes = 30, currency, couponCode } = req.body;
 
     // Validate mentor exists and is active
     const mentor = await prisma.mentor.findFirst({
@@ -53,8 +54,30 @@ async function createBooking(req, res) {
       });
     }
 
-    // Calculate amount in INR paise (base currency)
-    const amountInr = mentor.pricePerSession * (durationMinutes / mentor.sessionDuration);
+    // Calculate base amount in INR paise (base currency)
+    const duration = Number(durationMinutes) || mentor.sessionDuration || 30;
+    const sessionDuration = mentor.sessionDuration || 30;
+    const baseAmountInr = Math.round(mentor.pricePerSession * (duration / sessionDuration));
+
+    let discountAmountInr = 0;
+    let finalAmountInr = baseAmountInr;
+    let validatedCoupon = null;
+
+    if (couponCode) {
+      const couponRes = await validateCoupon({
+        code: couponCode,
+        userId: req.user.id,
+        amountInr: baseAmountInr,
+      });
+
+      if (!couponRes.valid) {
+        return res.status(400).json({ error: couponRes.error });
+      }
+
+      validatedCoupon = couponRes.coupon;
+      discountAmountInr = couponRes.discountAmount;
+      finalAmountInr = couponRes.finalAmount;
+    }
 
     // Determine target currency
     let targetCurrency = 'INR';
@@ -64,18 +87,136 @@ async function createBooking(req, res) {
       targetCurrency = req.user.currency.toUpperCase();
     }
 
-    // Convert INR amount to target currency subunits
-    const conversion = await exchangeRateService.convertInrToTarget(amountInr, targetCurrency);
+    // ── CASE 1: 100% DISCOUNT / ZERO AMOUNT (Special Test Coupon or Free Booking) ──
+    if (finalAmountInr === 0) {
+      // Create confirmed booking immediately (bypass Razorpay order)
+      const booking = await prisma.booking.create({
+        data: {
+          userId: req.user.id,
+          mentorId,
+          scheduledAt: new Date(scheduledAt),
+          durationMinutes: duration,
+          amountPaid: 0,
+          currency: targetCurrency,
+          amountPaidINR: 0,
+          originalAmount: baseAmountInr,
+          discountAmount: discountAmountInr,
+          couponCode: validatedCoupon ? validatedCoupon.code : null,
+          status: 'CONFIRMED',
+          paymentStatus: 'PAID',
+          paymentId: `COUPON_FREE_${validatedCoupon ? validatedCoupon.code : 'TEST'}_${Date.now()}`,
+        },
+      });
+
+      // Record coupon usage
+      if (validatedCoupon) {
+        await recordCouponUsage({
+          couponId: validatedCoupon.id,
+          userId: req.user.id,
+          bookingId: booking.id,
+        });
+      }
+
+      // Fetch full booking data with mentor and user
+      const fullBooking = await prisma.booking.findUnique({
+        where: { id: booking.id },
+        include: {
+          user: true,
+          mentor: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      });
+
+      // Create Google Calendar event + Meet link
+      let finalMeetLink = 'https://meet.google.com/qhs-wase-kny?pli=1';
+      let googleEventId = null;
+      try {
+        const meetEvent = await createMeetingEvent({
+          booking: fullBooking,
+          mentor: fullBooking.mentor,
+          user: fullBooking.user,
+          timezone: fullBooking.mentor.googleCalendarTimezone,
+        });
+        if (meetEvent?.meetLink) finalMeetLink = meetEvent.meetLink;
+        if (meetEvent?.googleEventId) googleEventId = meetEvent.googleEventId;
+
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { googleEventId, meetLink: finalMeetLink },
+        });
+      } catch (meetErr) {
+        console.warn('[booking] Google Meet event creation failed, using fallback link:', meetErr.message);
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { meetLink: finalMeetLink },
+        });
+      }
+
+      // Increment mentor session count
+      await prisma.mentor.update({
+        where: { id: booking.mentorId },
+        data: { totalSessions: { increment: 1 } },
+      });
+
+      // Link chat thread to this booking
+      await prisma.chatThread.updateMany({
+        where: { userId: booking.userId, mentorId: booking.mentorId },
+        data: { bookingId: booking.id, status: 'BOOKED' },
+      });
+
+      // Non-blocking confirmation emails
+      sendBookingConfirmationEmails({
+        booking: { ...booking, meetLink: finalMeetLink },
+        mentor: fullBooking.mentor,
+        user: fullBooking.user,
+        meetLink: finalMeetLink,
+      }).catch((err) => console.error('[booking] Email send error:', err.message));
+
+      // In-app notifications
+      await Promise.all([
+        sendNotification({
+          userId: booking.userId,
+          type: 'BOOKING_CONFIRMED',
+          title: 'Session confirmed! 🎉',
+          body: `Your session with ${fullBooking.mentor.displayName} is confirmed. 100% coupon discount applied.`,
+          metadata: { bookingId: booking.id, meetLink: finalMeetLink },
+        }),
+        sendNotification({
+          mentorId: booking.mentorId,
+          type: 'NEW_BOOKING',
+          title: 'New session booked! 📅',
+          body: `${fullBooking.user.name} booked a ${booking.durationMinutes}-minute session with you (Test/Free Coupon). Meet link: ${finalMeetLink}`,
+          metadata: { bookingId: booking.id, userId: booking.userId, meetLink: finalMeetLink },
+        }),
+      ]);
+
+      return res.json({
+        booking: { ...booking, meetLink: finalMeetLink },
+        order: null,
+        razorpayKeyId: null,
+        isFree: true,
+        message: 'Booking confirmed with 100% discount!',
+      });
+    }
+
+    // ── CASE 2: PAID BOOKING (with or without partial coupon discount) ─────────────
+    const conversion = await exchangeRateService.convertInrToTarget(finalAmountInr, targetCurrency);
 
     const booking = await prisma.booking.create({
       data: {
         userId: req.user.id,
         mentorId,
         scheduledAt: new Date(scheduledAt),
-        durationMinutes,
+        durationMinutes: duration,
         amountPaid: conversion.amount,
         currency: targetCurrency,
-        amountPaidINR: amountInr,
+        amountPaidINR: finalAmountInr,
+        originalAmount: baseAmountInr,
+        discountAmount: discountAmountInr,
+        couponCode: validatedCoupon ? validatedCoupon.code : null,
         status: 'PENDING',
       },
     });
@@ -87,7 +228,7 @@ async function createBooking(req, res) {
       notes: { bookingId: booking.id },
     });
 
-    res.json({ booking, order, razorpayKeyId: config.razorpay.keyId });
+    res.json({ booking, order, razorpayKeyId: config.razorpay.keyId, isFree: false });
   } catch (e) {
     console.error('[booking] createBooking error:', e);
     res.status(500).json({ error: 'Booking failed. Please try again.' });
@@ -173,6 +314,18 @@ async function verifyPayment(req, res) {
       where: { userId: booking.userId, mentorId: booking.mentorId },
       data: { bookingId: booking.id, status: 'BOOKED' },
     });
+
+    // Step 8b: If coupon was used on a paid booking, record coupon usage
+    if (booking.couponCode) {
+      const coupon = await prisma.coupon.findUnique({ where: { code: booking.couponCode } });
+      if (coupon) {
+        await recordCouponUsage({
+          couponId: coupon.id,
+          userId: booking.userId,
+          bookingId: booking.id,
+        });
+      }
+    }
 
     // Step 9: Send confirmation emails to both mentor and mentee (non-blocking)
     sendBookingConfirmationEmails({

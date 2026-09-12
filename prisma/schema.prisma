@@ -55,6 +55,7 @@ model User {
   deletionRequestsTarget   UserDeletionRequest[] @relation("TargetUserDeletion")
   deletionRequestsCreated  UserDeletionRequest[] @relation("RequesterUserDeletion")
   deletionRequestsReviewed UserDeletionRequest[] @relation("ReviewerUserDeletion")
+  couponUsages             CouponUsage[]
 
   @@index([username])
 }
@@ -97,6 +98,9 @@ model Booking {
   amountPaidINR      Int?
   userNotes          String?
   mentorNotes        String?
+  couponCode         String?
+  discountAmount     Int?          @default(0)
+  originalAmount     Int?
   intakeAnswers      Json?
   aiBriefSummary     String?       @db.Text
   cancelledBy        String?
@@ -680,5 +684,43 @@ model UserDeletionRequest {
   @@index([userId, status])
   @@index([status, createdAt])
   @@index([requestedById])
+}
+
+model Coupon {
+  id             String        @id @default(cuid())
+  code           String        @unique
+  discountType   DiscountType  @default(PERCENTAGE)
+  discountValue  Float
+  minOrderAmount Int?          @default(0)
+  maxDiscount    Int?
+  maxUses        Int?
+  usedCount      Int           @default(0)
+  maxUsesPerUser Int?          @default(1)
+  expiresAt      DateTime?
+  isActive       Boolean       @default(true)
+  description    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  usages         CouponUsage[]
+
+  @@index([code, isActive])
+}
+
+model CouponUsage {
+  id        String   @id @default(cuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookingId String?
+  usedAt    DateTime @default(now())
+
+  @@index([couponId, userId])
+  @@index([userId])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FLAT
 }
 

@@ -59,6 +59,8 @@ const webhookRoutes = require('./routes/webhook.routes');
 const aptitudeTestRoutes = require('./routes/aptitudeTest.routes');
 const cpProfileRoutes = require('./routes/cpProfile.routes');
 const bugReportRoutes = require('./routes/bugReport.routes');
+const couponRoutes = require('./routes/coupon.routes');
+const { ensureDefaultCoupons } = require('./services/coupon.service');
 
 const app = express();
 // Enable proxy trust across multi-tier reverse proxies (Cloudflare + DigitalOcean Load Balancer)
@@ -232,6 +234,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/aptitude-test', aptitudeTestRoutes);
 app.use('/api/cp', cpProfileRoutes);
 app.use('/api/bugs', bugReportRoutes);
+app.use('/api/coupons', couponRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {
@@ -446,6 +449,9 @@ server.listen(PORT, async () => {
   } catch (seedError) {
     console.warn('⚠️ Seeding demo profiles failed:', seedError.message);
   }
+
+  // Ensure default coupons (including special testing coupons FREE100 & TESTFREE)
+  ensureDefaultCoupons().catch((err) => console.error('Failed to seed default coupons:', err.message));
 
   // Print email delivery logs only in development for diagnostics
   if (config.nodeEnv === 'development') {
