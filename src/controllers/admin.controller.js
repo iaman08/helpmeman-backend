@@ -453,6 +453,22 @@ async function deleteMentorHandler(req, res) {
   }
 }
 
+async function deleteAllMentorsHandler(req, res) {
+  try {
+    const result = await deleteAllMentors({
+      actorId: req.user.id,
+      actorEmail: req.user.email,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+    });
+    res.json({ success: true, message: 'All mentors deleted successfully', ...result });
+  } catch (e) {
+    console.error('[ADMIN] deleteAllMentorsHandler error:', e);
+    res.status(500).json({ error: e.message || 'Failed to delete all mentors' });
+  }
+}
+
 async function requestUserDeletionHandler(req, res) {
   try {
     const { id } = req.params;
