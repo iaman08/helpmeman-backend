@@ -21,6 +21,8 @@ async function resolveUser(req) {
     token = authHeader.substring(7);
   } else if (req.body?.tempToken) {
     token = req.body.tempToken;
+  } else if (req.query?.tempToken) {
+    token = req.query.tempToken;
   }
 
   if (token) {
@@ -246,12 +248,13 @@ async function verifyLogin(req, res) {
  */
 async function listCredentials(req, res) {
   try {
-    if (!req.user || !req.user.id) {
+    const user = await resolveUser(req);
+    if (!user || !user.id) {
       return res.status(401).json({ error: 'Unauthorized user session' });
     }
 
     const passkeys = await prisma.passkeyCredential.findMany({
-      where: { userId: req.user.id },
+      where: { userId: user.id },
       select: {
         id: true,
         nickname: true,
@@ -264,15 +267,15 @@ async function listCredentials(req, res) {
       orderBy: { createdAt: 'desc' },
     });
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+    const userRecord = await prisma.user.findUnique({
+      where: { id: user.id },
       select: { twoFactorEnabled: true, twoFactorSecret: true },
     });
 
     res.json({
       passkeys,
-      hasAuthenticatorApp: Boolean(user?.twoFactorSecret),
-      twoFactorEnabled: Boolean(user?.twoFactorEnabled),
+      hasAuthenticatorApp: Boolean(userRecord?.twoFactorSecret),
+      twoFactorEnabled: Boolean(userRecord?.twoFactorEnabled),
     });
   } catch (error) {
     console.error('[WEBAUTHN] Failed to list credentials:', error);
@@ -286,13 +289,14 @@ async function listCredentials(req, res) {
  */
 async function deleteCredential(req, res) {
   try {
-    if (!req.user || !req.user.id) {
+    const user = await resolveUser(req);
+    if (!user || !user.id) {
       return res.status(401).json({ error: 'Unauthorized user session' });
     }
 
     const { id } = req.params;
     const credential = await prisma.passkeyCredential.findFirst({
-      where: { id, userId: req.user.id },
+      where: { id, userId: user.id },
     });
 
     if (!credential) {
@@ -303,17 +307,17 @@ async function deleteCredential(req, res) {
 
     // Check remaining methods
     const remainingPasskeys = await prisma.passkeyCredential.count({
-      where: { userId: req.user.id },
+      where: { userId: user.id },
     });
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+    const userRecord = await prisma.user.findUnique({
+      where: { id: user.id },
       select: { twoFactorSecret: true },
     });
 
-    if (remainingPasskeys === 0 && !user?.twoFactorSecret) {
+    if (remainingPasskeys === 0 && !userRecord?.twoFactorSecret) {
       await prisma.user.update({
-        where: { id: req.user.id },
+        where: { id: user.id },
         data: { twoFactorEnabled: false },
       });
     }
@@ -322,7 +326,7 @@ async function deleteCredential(req, res) {
       const { logAuditEvent } = require('../services/auditLog.service');
       logAuditEvent({
         action: 'WEBAUTHN_KEY_REVOKED',
-        actorId: (req.user.email || 'admin').toLowerCase(),
+        actorId: (user.email || req.user?.email || 'admin').toLowerCase(),
         req,
         metadata: {
           keyId: id,

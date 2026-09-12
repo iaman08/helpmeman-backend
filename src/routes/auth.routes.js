@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authLimiter, otpLimiter, generalLimiter } = require('../middleware/rateLimiter');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, optionalAuth } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const {
   registerSchema,
@@ -53,8 +53,8 @@ router.get('/webauthn/register-options', webauthn.getRegistrationOptions);
 router.post('/webauthn/register-verify', webauthn.verifyRegistration);
 router.post('/webauthn/login-options', authLimiter, webauthn.getLoginOptions);
 router.post('/webauthn/login-verify', authLimiter, webauthn.verifyLogin);
-router.get('/webauthn/credentials', authenticate, webauthn.listCredentials);
-router.delete('/webauthn/credentials/:id', authenticate, webauthn.deleteCredential);
+router.get('/webauthn/credentials', optionalAuth, webauthn.listCredentials);
+router.delete('/webauthn/credentials/:id', optionalAuth, webauthn.deleteCredential);
 
 // Protected: must be authenticated.
 router.post('/change-password', authenticate, validate(changePasswordSchema), auth.changePassword);
