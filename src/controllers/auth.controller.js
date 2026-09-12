@@ -544,6 +544,36 @@ async function refresh(req, res) {
       return res.status(400).json({ error: 'Refresh token is required' });
     }
 
+    // 1. Check if this is an application-issued JWT refresh token (used by 2FA, passkeys, admin, etc.)
+    try {
+      const decoded = verifyRefreshToken(refreshToken);
+      if (decoded && (decoded.userId || decoded.id)) {
+        const targetId = decoded.userId || decoded.id;
+        const user = await prisma.user.findUnique({
+          where: { id: targetId },
+          select: { id: true, email: true, role: true, status: true },
+        });
+
+        if (user && user.status !== 'DISABLED' && user.status !== 'DELETED') {
+          const tokenPayload = {
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+          };
+          const newAccessToken = generateAccessToken(tokenPayload);
+          const newRefreshToken = generateRefreshToken(tokenPayload);
+
+          return res.json({
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+          });
+        }
+      }
+    } catch {
+      // Not a valid custom JWT or expired, fallback to Supabase session refresh below
+    }
+
+    // 2. Fallback to Supabase session refresh (used by Supabase Auth sessions)
     const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
     if (error || !data.session) {
       return res.status(401).json({ error: 'Invalid or expired refresh token' });

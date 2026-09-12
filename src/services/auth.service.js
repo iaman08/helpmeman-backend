@@ -95,7 +95,10 @@ async function verifySession(token) {
         return localUser;
       }
     }
-  } catch {
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      throw new Error('jwt expired');
+    }
     // Token is not a custom app JWT, proceed to Supabase verification...
   }
 
