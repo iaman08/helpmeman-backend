@@ -4,9 +4,16 @@ const { sendNotification } = require('./notification.service');
 
 
 async function approveMentor(mentorId) {
+  const current = await prisma.mentor.findUnique({ where: { id: mentorId }, include: { user: true } });
+  const avatarToSet = (current?.avatar && current.avatar.trim()) || (current?.user?.avatar && current.user.avatar.trim()) || undefined;
+
   const mentor = await prisma.mentor.update({
     where: { id: mentorId },
-    data: { approvalStatus: 'APPROVED', isActive: true },
+    data: {
+      approvalStatus: 'APPROVED',
+      isActive: true,
+      ...(avatarToSet ? { avatar: avatarToSet } : {}),
+    },
     include: { user: true },
   });
 
