@@ -219,18 +219,29 @@ async function updateMentorPrice(req, res) {
       return res.status(400).json({ error: 'Valid non-negative price is required' });
     }
 
-    const existingMentor = await prisma.mentor.findUnique({
+    let existingMentor = await prisma.mentor.findUnique({
       where: { id },
       include: {
         user: { select: { id: true, name: true, email: true, avatar: true } },
       },
     });
+
+    if (!existingMentor) {
+      existingMentor = await prisma.mentor.findFirst({
+        where: { userId: id },
+        include: {
+          user: { select: { id: true, name: true, email: true, avatar: true } },
+        },
+      });
+    }
+
     if (!existingMentor) {
       return res.status(404).json({ error: 'Mentor not found' });
     }
 
+    const mentorId = existingMentor.id;
     const updated = await prisma.mentor.update({
-      where: { id },
+      where: { id: mentorId },
       data: { pricePerSession: finalPriceInPaise },
       include: {
         user: {
