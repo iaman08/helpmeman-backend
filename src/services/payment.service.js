@@ -7,6 +7,13 @@ const razorpay = new Razorpay({
   key_secret: config.razorpay.keySecret,
 });
 
+const isLiveRazorpay = config.razorpay.keyId?.startsWith('rzp_live_');
+if (config.razorpay.keyId) {
+  console.log(`[Razorpay] Initialized in ${isLiveRazorpay ? 'LIVE 🟢' : 'TEST 🟡'} mode (${config.razorpay.keyId.slice(0, 12)}...)`);
+} else {
+  console.warn('[Razorpay] ⚠️ Warning: RAZORPAY_KEY_ID is not configured.');
+}
+
 async function createOrder({ amount, currency = 'INR', receipt, notes = {} }) {
   const order = await razorpay.orders.create({
     amount, // in paise

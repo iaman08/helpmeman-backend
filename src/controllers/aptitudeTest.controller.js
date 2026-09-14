@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const config = require('../config/env');
 const { createOrder, verifyPaymentSignature } = require('../services/payment.service');
 const { sendEmail } = require('../services/email.service');
 
@@ -178,7 +179,7 @@ async function createAptitudeOrder(req, res) {
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      keyId: process.env.RAZORPAY_KEY_ID,
+      keyId: config.razorpay.keyId,
     });
   } catch (error) {
     console.error("[Aptitude] Error creating Razorpay order:", error);
