@@ -58,7 +58,11 @@ async function getPendingMentors(req, res) {
       }),
       prisma.mentor.count({ where: { approvalStatus: 'PENDING' } }),
     ]);
-    res.json({ mentors, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
+    const enrichedMentors = mentors.map((m) => ({
+      ...m,
+      avatar: m.avatar || m.user?.avatar || null,
+    }));
+    res.json({ mentors: enrichedMentors, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
   } catch (e) {
     console.error('[ADMIN] getPendingMentors error:', e);
     res.status(500).json({ error: 'Failed' });
@@ -90,7 +94,11 @@ async function getMentorDetail(req, res) {
       },
     });
     if (!mentor) return res.status(404).json({ error: 'Mentor not found' });
-    res.json({ mentor });
+    const enriched = {
+      ...mentor,
+      avatar: mentor.avatar || mentor.user?.avatar || null,
+    };
+    res.json({ mentor: enriched });
   } catch (e) {
     console.error('[ADMIN] getMentorDetail error:', e);
     res.status(500).json({ error: 'Failed' });
@@ -181,10 +189,81 @@ async function getAllMentors(req, res) {
       }),
       prisma.mentor.count({ where }),
     ]);
-    res.json({ mentors, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
+    const enrichedMentors = mentors.map((m) => ({
+      ...m,
+      avatar: m.avatar || m.user?.avatar || null,
+    }));
+    res.json({ mentors: enrichedMentors, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
   } catch (e) {
     console.error('[ADMIN] getAllMentors error:', e);
     res.status(500).json({ error: 'Failed' });
+  }
+}
+
+async function updateMentorPrice(req, res) {
+  try {
+    const { id } = req.params;
+    let { pricePerSession, priceInRupees, price } = req.body;
+    let finalPriceInPaise;
+
+    if (priceInRupees !== undefined && priceInRupees !== null && priceInRupees !== '') {
+      finalPriceInPaise = Math.round(Number(priceInRupees) * 100);
+    } else if (pricePerSession !== undefined && pricePerSession !== null && pricePerSession !== '') {
+      finalPriceInPaise = Math.round(Number(pricePerSession));
+    } else if (price !== undefined && price !== null && price !== '') {
+      const num = Number(price);
+      finalPriceInPaise = num >= 10000 ? Math.round(num) : Math.round(num * 100);
+    }
+
+    if (finalPriceInPaise === undefined || isNaN(finalPriceInPaise) || finalPriceInPaise < 0) {
+      return res.status(400).json({ error: 'Valid non-negative price is required' });
+    }
+
+    const existingMentor = await prisma.mentor.findUnique({
+      where: { id },
+      include: {
+        user: { select: { id: true, name: true, email: true, avatar: true } },
+      },
+    });
+    if (!existingMentor) {
+      return res.status(404).json({ error: 'Mentor not found' });
+    }
+
+    const updated = await prisma.mentor.update({
+      where: { id },
+      data: { pricePerSession: finalPriceInPaise },
+      include: {
+        user: {
+          select: { id: true, name: true, email: true, avatar: true },
+        },
+        category: true,
+      },
+    });
+
+    const enriched = {
+      ...updated,
+      avatar: updated.avatar || updated.user?.avatar || null,
+    };
+
+    await logAuditEvent({
+      action: 'MENTOR_PRICE_UPDATED',
+      actorId: req.user.id,
+      targetId: id,
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: {
+        actorEmail: req.user.email,
+        oldPricePerSession: existingMentor.pricePerSession,
+        newPricePerSession: finalPriceInPaise,
+        newPriceInRupees: Math.round(finalPriceInPaise / 100),
+      },
+    });
+
+    res.json({ mentor: enriched });
+  } catch (e) {
+    console.error('[ADMIN] updateMentorPrice error:', e);
+    res.status(500).json({ error: 'Failed to update mentor price' });
   }
 }
 
@@ -513,6 +592,7 @@ module.exports = {
   approveMentorHandler,
   rejectMentorHandler,
   getAllMentors,
+  updateMentorPrice,
   toggleMentorActive,
   deleteMentorHandler,
   deleteAllMentorsHandler,

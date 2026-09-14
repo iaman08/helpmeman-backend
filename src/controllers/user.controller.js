@@ -73,11 +73,12 @@ async function updateProfile(req, res) {
       select: { id: true, approvalStatus: true, isActive: true }
     });
 
-    // If they are a mentor and updated their avatar, sync it to Mentor model
-    if (req.file && mentor) {
-      await prisma.mentor.update({
+    // If they are a mentor, keep mentor.avatar in sync with user.avatar
+    if (data.avatar !== undefined || req.file) {
+      const avatarToSync = data.avatar !== undefined ? data.avatar : user.avatar;
+      await prisma.mentor.updateMany({
         where: { userId: req.user.id },
-        data: { avatar: data.avatar }
+        data: { avatar: avatarToSync }
       }).catch(err => console.error('[PROFILE] Sync to Mentor avatar failed:', err.message));
     }
 
@@ -330,9 +331,21 @@ async function submitComplaint(req, res) {
   }
 }
 
+async function removeAvatar(req, res) {
+  try {
+    await prisma.user.update({ where: { id: req.user.id }, data: { avatar: null } });
+    await prisma.mentor.updateMany({ where: { userId: req.user.id }, data: { avatar: null } });
+    res.json({ message: 'Avatar removed successfully' });
+  } catch (e) {
+    console.error('Failed to remove avatar:', e);
+    res.status(500).json({ error: 'Failed to remove avatar' });
+  }
+}
+
 module.exports = {
   getProfile,
   updateProfile,
+  removeAvatar,
   changePassword,
   getBookings,
   getBookingDetail,

@@ -6,7 +6,19 @@ const { getMentorNotifications } = require('../services/notification.service');
 function enrichPresence(mentor) {
   if (!mentor) return null;
   const user = mentor.user;
-  if (!user) return mentor;
+  const avatar = (mentor.avatar && mentor.avatar.trim()) || (user && user.avatar && user.avatar.trim()) || null;
+
+  // If mentor is missing avatar in DB but user has one, self-heal asynchronously
+  if (!mentor.avatar && user?.avatar && mentor.id) {
+    prisma.mentor.update({ where: { id: mentor.id }, data: { avatar: user.avatar } }).catch(() => {});
+  }
+
+  if (!user) {
+    return {
+      ...mentor,
+      avatar,
+    };
+  }
 
   const presenceStatus = user.presenceStatus || 'OFFLINE';
   const lastSeen = user.lastSeen;
@@ -34,7 +46,11 @@ function enrichPresence(mentor) {
     ...mentor,
     isOnline,
     activeStatus,
-    avatar: mentor.avatar || user.avatar || null
+    avatar,
+    user: {
+      ...user,
+      avatar,
+    },
   };
 }
 
@@ -217,18 +233,31 @@ async function updateOwnProfile(req, res) {
       state,
       city,
       locality,
-      postalCode
+      postalCode,
+      avatar,
     } = req.body;
 
     const data = {};
     if (bio !== undefined) data.bio = bio;
     if (expertise !== undefined) data.expertise = expertise;
-    if (pricePerSession !== undefined) data.pricePerSession = pricePerSession;
+    if (pricePerSession !== undefined) {
+      const parsed = parseInt(pricePerSession);
+      data.pricePerSession = isNaN(parsed) ? 0 : (parsed > 0 && parsed < 1000 ? parsed * 100 : parsed);
+    }
     if (sessionDuration !== undefined) data.sessionDuration = sessionDuration;
     if (linkedinUrl !== undefined) data.linkedinUrl = linkedinUrl;
     if (displayName !== undefined) data.displayName = displayName;
     if (experienceYears !== undefined) data.experienceYears = experienceYears !== null ? parseInt(experienceYears) : null;
     if (isOnline !== undefined) data.isOnline = isOnline === true || isOnline === 'true';
+
+    // Avatar syncing
+    if (avatar !== undefined) {
+      data.avatar = avatar;
+      await prisma.user.update({
+        where: { id: req.user.id },
+        data: { avatar }
+      }).catch(() => {});
+    }
 
     // Structured Address Fields
     if (country !== undefined) data.country = country;
@@ -264,7 +293,7 @@ async function updateOwnProfile(req, res) {
       data,
       include: {
         category: true,
-        user: { select: { avatar: true, presenceStatus: true, lastSeen: true } }
+        user: { select: { name: true, avatar: true, presenceStatus: true, lastSeen: true } }
       }
     });
 
@@ -280,10 +309,13 @@ async function updateAvatar(req, res) {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file' });
     const url = await uploadImage(req.file, 'avatars');
-    const mentor = await prisma.mentor.update({ where: { userId: req.user.id }, data: { avatar: url } });
-    await prisma.user.update({ where: { id: req.user.id }, data: { avatar: url } });
+    await prisma.user.update({ where: { id: req.user.id }, data: { avatar: url } }).catch(() => {});
+    await prisma.mentor.updateMany({ where: { userId: req.user.id }, data: { avatar: url } }).catch(() => {});
     res.json({ avatar: url });
-  } catch (e) { res.status(500).json({ error: 'Upload failed' }); }
+  } catch (e) {
+    console.error('[MENTOR_CONTROLLER] Update avatar error:', e);
+    res.status(500).json({ error: 'Upload failed' });
+  }
 }
 
 async function uploadDoc(req, res) {

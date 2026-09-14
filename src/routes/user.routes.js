@@ -13,6 +13,8 @@ router.use(roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR', 'STUDENT'));
 
 router.get('/me', user.getProfile);
 router.put('/me', upload.single('avatar'), user.updateProfile);
+router.delete('/me/avatar', user.removeAvatar);
+router.delete('/avatar', user.removeAvatar);
 router.put('/me/password', user.changePassword);
 router.get('/me/username/check/:username', user.checkUsername);
 router.put('/me/username', user.updateUsername);

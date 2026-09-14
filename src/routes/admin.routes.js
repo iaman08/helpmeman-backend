@@ -19,6 +19,8 @@ router.delete('/mentors/:id', admin.deleteMentorHandler);
 router.post('/mentors/delete-all', admin.deleteAllMentorsHandler);
 router.put('/mentors/:id/toggle-active', admin.toggleMentorActive);
 router.post('/mentors/:id/toggle-active', admin.toggleMentorActive);
+router.patch('/mentors/:id/price', admin.updateMentorPrice);
+router.put('/mentors/:id/price', admin.updateMentorPrice);
 router.get('/users', admin.getAllUsers);
 router.post('/users/:id/status', admin.setUserStatusHandler);
 router.post('/users/:id/request-deletion', admin.requestUserDeletionHandler);

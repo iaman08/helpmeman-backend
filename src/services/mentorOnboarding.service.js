@@ -380,6 +380,7 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
       update: {
         displayName: result.preferredName || result.name || user.name,
         bio: result.bio || '',
+        avatar: user.avatar || undefined,
         currentRole: result.role || null,
         company: result.company || null,
         expertise: result.expertiseTags || result.skills || [],
@@ -393,6 +394,7 @@ name, preferredName, role, company, location, skills (array), experienceYears (i
         userId,
         displayName: result.preferredName || result.name || user.name,
         bio: result.bio || '',
+        avatar: user.avatar || null,
         institutionType: 'COMPANY',
         institutionName: result.company || 'Independent',
         institutionEmail: user.email,

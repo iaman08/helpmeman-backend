@@ -364,6 +364,7 @@ async function verifyMentorOTP(req, res) {
         userId: user.id, displayName, bio, institutionType, institutionName,
         institutionEmail: normalizedInstEmail, department, graduationYear, currentRole, company,
         linkedinUrl, expertise: expertise || [], categoryId,
+        avatar: user.avatar || null,
         pricePerSession: pricePerSession || 50000, sessionDuration: sessionDuration || 30,
         approvalStatus: 'PENDING', isActive: false,
       },
