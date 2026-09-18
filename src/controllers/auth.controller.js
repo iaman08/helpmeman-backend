@@ -38,8 +38,12 @@ async function register(req, res) {
 
     const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
-      const registeredRole = (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
-      return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role (either Mentor or Mentee).` });
+      const registeredRole = (existing.role === 'ADMIN' || existing.role === 'SUPER_ADMIN')
+        ? 'Administrator'
+        : (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR')
+          ? 'Mentor'
+          : 'Mentee';
+      return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role.` });
     }
 
     const otp = generateOTP();
@@ -86,7 +90,11 @@ async function verifySignupOTP(req, res) {
     // Prevent cross-role registration with the same email address
     const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (existingUser) {
-      const existingRole = (existingUser.role === 'MENTOR' || existingUser.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
+      const existingRole = (existingUser.role === 'ADMIN' || existingUser.role === 'SUPER_ADMIN')
+        ? 'Administrator'
+        : (existingUser.role === 'MENTOR' || existingUser.onboardingRole === 'MENTOR')
+          ? 'Mentor'
+          : 'Mentee';
       if (isMentorSignup && (existingUser.role === 'STUDENT' || existingUser.onboardingRole === 'MENTEE')) {
         return res.status(409).json({ error: 'This email is already registered as a Mentee account. An email address can only be registered for one role (either Mentor or Mentee).' });
       }
@@ -274,8 +282,12 @@ async function registerMentor(req, res) {
 
     const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
-      const registeredRole = (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
-      return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role (either Mentor or Mentee).` });
+      const registeredRole = (existing.role === 'ADMIN' || existing.role === 'SUPER_ADMIN')
+        ? 'Administrator'
+        : (existing.role === 'MENTOR' || existing.onboardingRole === 'MENTOR')
+          ? 'Mentor'
+          : 'Mentee';
+      return res.status(409).json({ error: `This email is already registered as a ${registeredRole} account. An email address can only be registered for one role.` });
     }
 
     if (institutionEmail) {

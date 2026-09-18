@@ -66,66 +66,160 @@ async function createAdmin(req, res) {
   try {
     const { email, name, password, role } = req.body;
     
-    if (role !== 'ADMIN') {
-      return res.status(400).json({ error: 'Can only create users with ADMIN role' });
-    }
-    
     if (!email || !name || !password) {
       return res.status(400).json({ error: 'Email, name, and password are required' });
     }
-    
-    // Check if user already exists
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) {
-      return res.status(400).json({ error: 'Email is already in use' });
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const targetRole = role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN';
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
-    
-    // Create in Supabase
+
+    // Check if user already exists in Prisma DB
+    const existing = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: normalizedEmail },
+          { email: { equals: normalizedEmail, mode: 'insensitive' } }
+        ]
+      }
+    });
+
+    let authUserId = null;
+
+    // 1. Create or synchronize user in Supabase Auth
     const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
-      email,
+      email: normalizedEmail,
       password,
       email_confirm: true,
-      user_metadata: { name, role }
+      user_metadata: { name, role: targetRole }
     });
-    
+
     if (authError) {
-      return res.status(400).json({ error: authError.message });
+      const isAlreadyRegistered =
+        authError.message?.toLowerCase().includes('already') ||
+        authError.status === 422 ||
+        authError.code === 'email_exists';
+
+      if (isAlreadyRegistered) {
+        // Find existing Supabase user by email
+        const { data: listData } = await adminSupabase.auth.admin.listUsers();
+        const sbUser = listData?.users?.find(u => u.email?.toLowerCase() === normalizedEmail);
+
+        if (sbUser) {
+          authUserId = sbUser.id;
+          // Update password, metadata, unban, confirm email
+          const { error: updateError } = await adminSupabase.auth.admin.updateUserById(sbUser.id, {
+            password,
+            email_confirm: true,
+            user_metadata: { name, role: targetRole },
+            ban_duration: 'none'
+          });
+          if (updateError) {
+            console.warn('[ADMIN_MGMT] Supabase update user warning:', updateError.message);
+          }
+        } else if (existing) {
+          authUserId = existing.id;
+          await adminSupabase.auth.admin.updateUserById(existing.id, {
+            password,
+            email_confirm: true,
+            user_metadata: { name, role: targetRole },
+            ban_duration: 'none'
+          }).catch((err) => {
+            console.warn('[ADMIN_MGMT] Supabase update user by existing ID warning:', err.message);
+          });
+        }
+      } else {
+        return res.status(400).json({ error: authError.message });
+      }
+    } else if (authData?.user) {
+      authUserId = authData.user.id;
     }
-    
-    // Create in local DB
+
+    // 2. If user exists in Prisma
+    if (existing) {
+      // If already an active administrator with the requested role
+      if ((existing.role === 'ADMIN' || existing.role === 'SUPER_ADMIN') && existing.status === 'ACTIVE' && existing.role === targetRole) {
+        return res.status(409).json({ error: `An active administrator with email "${normalizedEmail}" already exists.` });
+      }
+
+      // Promote / activate existing user to administrator
+      const updatedAdmin = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          role: targetRole,
+          status: 'ACTIVE',
+          isEmailVerified: true,
+          mustChangePassword: false
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          lastSeen: true,
+          createdAt: true
+        }
+      });
+
+      invalidateCachedUser(existing.id);
+
+      await logAuditEvent({
+        action: 'ADMIN_PROMOTED_OR_UPDATED',
+        actorId: req.user.id,
+        targetId: updatedAdmin.id,
+        newValue: targetRole,
+        endpoint: req.originalUrl,
+        ip: getClientIp(req),
+        userAgent: req.headers['user-agent'] || null,
+        metadata: { actorEmail: req.user.email, adminEmail: normalizedEmail, previousRole: existing.role }
+      });
+
+      return res.status(200).json({ data: updatedAdmin, message: 'Administrator account provisioned successfully' });
+    }
+
+    // 3. Create new admin in Prisma DB
     const newAdmin = await prisma.user.create({
       data: {
-        id: authData.user.id,
-        email,
+        ...(authUserId ? { id: authUserId } : {}),
+        email: normalizedEmail,
         name,
-        passwordHash: 'supabase', // We don't store passwords
-        role: 'ADMIN',
-        isEmailVerified: true
+        passwordHash: 'supabase',
+        role: targetRole,
+        status: 'ACTIVE',
+        isEmailVerified: true,
+        mustChangePassword: false
       },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
-        status: true
+        status: true,
+        lastSeen: true,
+        createdAt: true
       }
     });
-    
+
     await logAuditEvent({
       action: 'ADMIN_CREATED',
       actorId: req.user.id,
       targetId: newAdmin.id,
-      newValue: 'ADMIN',
+      newValue: targetRole,
       endpoint: req.originalUrl,
       ip: getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
-      metadata: { actorEmail: req.user.email, newAdminEmail: email }
+      metadata: { actorEmail: req.user.email, newAdminEmail: normalizedEmail }
     });
-    
-    res.status(201).json({ data: newAdmin });
+
+    return res.status(201).json({ data: newAdmin, message: 'Administrator created successfully' });
   } catch (error) {
     console.error('Error creating admin:', error);
-    res.status(500).json({ error: 'Failed to create admin' });
+    res.status(500).json({ error: error.message || 'Failed to create admin' });
   }
 }
 
@@ -134,8 +228,8 @@ async function updateAdmin(req, res) {
     const { id } = req.params;
     const { name, role } = req.body;
     
-    if (id === req.user.id) {
-      return res.status(400).json({ error: 'Cannot modify your own account' });
+    if (id === req.user.id && role && role !== req.user.role) {
+      return res.status(400).json({ error: 'Cannot change your own role' });
     }
     
     const adminToUpdate = await prisma.user.findUnique({ where: { id } });
@@ -143,12 +237,8 @@ async function updateAdmin(req, res) {
       return res.status(404).json({ error: 'Admin not found' });
     }
     
-    if (adminToUpdate.role === 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'Cannot modify a SUPER_ADMIN account' });
-    }
-    
-    if (role && role === 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'Cannot grant SUPER_ADMIN role' });
+    if (role && !['ADMIN', 'SUPER_ADMIN'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be ADMIN or SUPER_ADMIN' });
     }
     
     const dataToUpdate = {};
@@ -163,15 +253,22 @@ async function updateAdmin(req, res) {
         name: true,
         email: true,
         role: true,
-        status: true
+        status: true,
+        lastSeen: true,
+        createdAt: true
       }
     });
     
-    // Update Supabase metadata if role changed
-    if (role) {
-      await adminSupabase.auth.admin.updateUserById(id, { user_metadata: { role } });
-    }
+    // Update Supabase metadata if role or name changed
+    await adminSupabase.auth.admin.updateUserById(id, {
+      user_metadata: {
+        ...(name ? { name } : {}),
+        ...(role ? { role } : {})
+      }
+    }).catch(err => console.warn('[ADMIN_MGMT] Supabase update metadata warning:', err.message));
     
+    invalidateCachedUser(id);
+
     await logAuditEvent({
       action: 'ADMIN_UPDATED',
       actorId: req.user.id,

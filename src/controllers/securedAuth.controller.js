@@ -70,7 +70,11 @@ const register = asyncHandler(async (req, res) => {
   });
 
   if (existingUser) {
-    const registeredRole = (existingUser.role === 'MENTOR' || existingUser.onboardingRole === 'MENTOR') ? 'Mentor' : 'Mentee';
+    const registeredRole = (existingUser.role === 'ADMIN' || existingUser.role === 'SUPER_ADMIN')
+      ? 'Administrator'
+      : (existingUser.role === 'MENTOR' || existingUser.onboardingRole === 'MENTOR')
+        ? 'Mentor'
+        : 'Mentee';
     // Throw operational ConflictError (HTTP 409) without leaking database schema
     throw new ConflictError(`This email is already registered as a ${registeredRole} account.`);
   }
