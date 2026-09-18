@@ -57,7 +57,7 @@ function hashOTP(otp) {
   return crypto.createHash('sha256').update(String(otp).trim()).digest('hex');
 }
 
-function otpKey(email)  { return `otp:${email.toLowerCase().trim()}`; }
+function otpKey(email, purpose = 'verify')  { return `otp:${email.toLowerCase().trim()}:${purpose}`; }
 function rateKey(email) { return `otp_rate:${email.toLowerCase().trim()}`; }
 
 /** Try a Redis operation. On rate-limit or network error, disable Redis and warn. */
@@ -116,7 +116,7 @@ async function storeOTP(email, otp, purpose = 'verify') {
   // ── 2. Cache in Redis (fire-and-forget — never blocks response) ──────────
   fireRedis(async () => {
     const entry = { codeHash, expiresAt: Date.now() + OTP_EXPIRY_MS, attempts: 0, lastSentAt: Date.now(), purpose };
-    await redisClient.set(otpKey(normalized), JSON.stringify(entry), { ex: Math.ceil(OTP_EXPIRY_MS / 1000) });
+    await redisClient.set(otpKey(normalized, purpose), JSON.stringify(entry), { ex: Math.ceil(OTP_EXPIRY_MS / 1000) });
     const rk = rateKey(normalized);
     const count = await redisClient.incr(rk);
     if (count === 1) await redisClient.expire(rk, Math.ceil(HOUR_MS / 1000));
@@ -136,7 +136,7 @@ async function verifyOTP(email, otp, purpose = 'verify') {
 
   // ── Try Redis fast-path ──────────────────────────────────────────────────
   const redisCacheEntry = await tryRedis(async () => {
-    const raw = await redisClient.get(otpKey(normalized));
+    const raw = await redisClient.get(otpKey(normalized, purpose));
     if (!raw) return null;
     return typeof raw === 'string' ? JSON.parse(raw) : raw;
   }, 'verify-lookup');
@@ -186,7 +186,7 @@ async function verifyFromRedisEntry(entry, email, otp, purpose) {
     await tryRedis(async () => {
       const ttl = Math.ceil((entry.expiresAt - now) / 1000);
       await redisClient.set(
-        otpKey(email),
+        otpKey(email, purpose),
         JSON.stringify(entry),
         { ex: Math.max(ttl, 1) }
       );
@@ -206,7 +206,7 @@ async function verifyFromRedisEntry(entry, email, otp, purpose) {
   }
 
   // ✅ Correct code — delete everywhere
-  await tryRedis(() => redisClient.del(otpKey(email)), 'delete');
+  await tryRedis(() => redisClient.del(otpKey(email, purpose)), 'delete');
   prisma.otpCode.deleteMany({ where: { email, purpose } })
     .catch((e) => console.warn('[OTP] DB delete after Redis verify failed:', e.message));
 
@@ -238,30 +238,30 @@ async function verifyFromDB(email, otp, purpose) {
     // Expired?
     if (Date.now() > record.expiresAt.getTime()) {
       prisma.otpCode.delete({ where: { id: record.id } }).catch(() => {});
-      fireRedis(() => redisClient.del(otpKey(email)));
+      fireRedis(() => redisClient.del(otpKey(email, purpose)));
       return { valid: false, error: 'OTP has expired. Please request a new one.' };
     }
 
     // Too many attempts?
     if (record.attempts >= MAX_ATTEMPTS) {
       prisma.otpCode.delete({ where: { id: record.id } }).catch(() => {});
-      fireRedis(() => redisClient.del(otpKey(email)));
+      fireRedis(() => redisClient.del(otpKey(email, purpose)));
       return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
     }
 
     // Wrong code?
     if (record.codeHash !== hashOTP(otp)) {
       const newAttempts = record.attempts + 1;
-      // Fire-and-forget attempt increment — don't block the response
-      prisma.otpCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } }).catch(() => {});
+      // Await attempt increment to prevent lockout bypass via concurrent requests
+      await prisma.otpCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } }).catch(() => {});
       const remaining = MAX_ATTEMPTS - newAttempts;
       console.warn(`[OTP] Wrong OTP for ${email} (${remaining} left)`);
       return { valid: false, error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
     }
 
-    // ✅ Correct — fire-and-forget cleanup so response is immediate
-    prisma.otpCode.delete({ where: { id: record.id } }).catch(() => {});
-    fireRedis(() => redisClient.del(otpKey(email)));
+    // Await deletion to prevent OTP reuse via concurrent requests
+    await prisma.otpCode.delete({ where: { id: record.id } }).catch(() => {});
+    fireRedis(() => redisClient.del(otpKey(email, purpose)));
 
     console.log(`[OTP] ✅ Verified via DB for ${email} (${ms(tDb)})`);
     return { valid: true };

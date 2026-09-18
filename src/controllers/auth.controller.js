@@ -44,7 +44,6 @@ async function register(req, res) {
 
     const otp = generateOTP();
     await storeOTP(normalizedEmail, otp, 'signup');
-    await storeOTP(normalizedEmail, otp, 'verify');
 
     if (process.env.NODE_ENV !== 'production') {
       console.log(`\n🔑 [OTP] Signup code for ${normalizedEmail}: ${otp}\n`);
@@ -283,10 +282,8 @@ async function registerMentor(req, res) {
 
     const otp = generateOTP();
     await storeOTP(normalizedInstEmail, otp, 'signup');
-    await storeOTP(normalizedInstEmail, otp, 'verify');
     if (normalizedEmail !== normalizedInstEmail) {
       await storeOTP(normalizedEmail, otp, 'signup');
-      await storeOTP(normalizedEmail, otp, 'verify');
     }
 
     if (process.env.NODE_ENV !== 'production') {
@@ -316,9 +313,6 @@ async function verifyMentorOTP(req, res) {
     const normalizedInstEmail = (institutionEmail || email || '').toLowerCase().trim();
 
     let result = await verifyOTP(normalizedInstEmail, otp, 'signup');
-    if (!result.valid) {
-      result = await verifyOTP(normalizedInstEmail, otp, 'verify');
-    }
     if (!result.valid && normalizedEmail !== normalizedInstEmail) {
       result = await verifyOTP(normalizedEmail, otp, 'signup');
     }
@@ -703,7 +697,6 @@ async function resendOTP(req, res) {
     if (purpose === 'signup' || purpose === 'verify') {
       const otp = generateOTP();
       await storeOTP(normalizedEmail, otp, 'signup');
-      await storeOTP(normalizedEmail, otp, 'verify');
       if (process.env.NODE_ENV !== 'production') {
         console.log(`\n🔑 [OTP] Resending code for ${normalizedEmail}: ${otp}\n`);
       }
