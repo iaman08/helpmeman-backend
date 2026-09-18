@@ -172,10 +172,7 @@ async function getState(userId) {
 async function selectRole(userId, role) {
   if (!['MENTOR', 'MENTEE'].includes(role)) throw new Error('Choose MENTOR or MENTEE');
   const existingUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, name: true } });
-  if ((existingUser?.role === 'STUDENT' || existingUser?.role === 'MENTEE') && role === 'MENTOR') {
-    throw new Error('Student/Mentee accounts cannot be converted to mentor accounts. Please create a dedicated mentor account.');
-  }
-  const shouldUpdateRole = role === 'MENTOR' && existingUser && existingUser.role !== 'ADMIN' && existingUser.role !== 'SUPER_ADMIN' && existingUser.role !== 'STUDENT' && existingUser.role !== 'MENTEE';
+  const shouldUpdateRole = role === 'MENTOR' && existingUser && existingUser.role !== 'ADMIN' && existingUser.role !== 'SUPER_ADMIN';
   const user = await prisma.user.update({
     where: { id: userId },
     data: {

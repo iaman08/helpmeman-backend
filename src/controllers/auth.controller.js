@@ -157,7 +157,10 @@ async function verifySignupOTP(req, res) {
 
         const mentorRecord = await prisma.mentor.upsert({
           where: { userId: user.id },
-          update: {},
+          update: {
+            approvalStatus: 'APPROVED',
+            isActive: true,
+          },
           create: {
             userId: user.id,
             displayName: user.name,
@@ -165,8 +168,8 @@ async function verifySignupOTP(req, res) {
             institutionType: 'COMPANY',
             institutionName: 'Independent',
             institutionEmail: user.email,
-            approvalStatus: 'PENDING',
-            isActive: false,
+            approvalStatus: 'APPROVED',
+            isActive: true,
             pricePerSession: 0,
             sessionDuration: 30,
             categoryId: category.id,
@@ -738,28 +741,11 @@ async function googleLogin(req, res) {
     let user = await authService.verifySession(accessToken);
     console.log('[AUTH] STEP 4: Google/Supabase user successfully verified and extracted:', user.email);
 
-    // Enforce strict 1-email 1-role policy
-    const existingDbUser = await prisma.user.findUnique({ where: { email: user.email.toLowerCase() } });
-    if (existingDbUser) {
-      const isExistingMentor = existingDbUser.role === 'MENTOR' || existingDbUser.onboardingRole === 'MENTOR';
-      const isExistingMentee = existingDbUser.role === 'STUDENT' || existingDbUser.onboardingRole === 'MENTEE';
+    // Check if the user is already a mentor or logging in with mentor intent
+    const existingMentorRecord = await prisma.mentor.findUnique({ where: { userId: user.id } });
+    const isMentorIntent = onboardingRole === 'MENTOR' || user.role === 'MENTOR' || user.onboardingRole === 'MENTOR' || Boolean(existingMentorRecord);
 
-      if (onboardingRole === 'MENTOR' && isExistingMentee) {
-        return res.status(409).json({
-          error: 'This Google account is already registered as a Mentee. An email address can only be registered for one role (either Mentor or Mentee).',
-          code: 'ROLE_CONFLICT_MENTEE'
-        });
-      }
-
-      if (onboardingRole === 'MENTEE' && isExistingMentor) {
-        return res.status(409).json({
-          error: 'This Google account is already registered as a Mentor. An email address can only be registered for one role (either Mentor or Mentee).',
-          code: 'ROLE_CONFLICT_MENTOR'
-        });
-      }
-    }
-
-    if (onboardingRole === 'MENTOR' && user && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+    if (isMentorIntent && user && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
       user = await prisma.user.update({
         where: { id: user.id },
         data: { role: 'MENTOR', onboardingRole: 'MENTOR' },
@@ -780,7 +766,10 @@ async function googleLogin(req, res) {
 
       const mentorRecord = await prisma.mentor.upsert({
         where: { userId: user.id },
-        update: {},
+        update: {
+          approvalStatus: 'APPROVED',
+          isActive: true,
+        },
         create: {
           userId: user.id,
           displayName: user.name,
@@ -788,8 +777,8 @@ async function googleLogin(req, res) {
           institutionType: 'COMPANY',
           institutionName: 'Independent',
           institutionEmail: user.email,
-          approvalStatus: 'PENDING',
-          isActive: false,
+          approvalStatus: 'APPROVED',
+          isActive: true,
           pricePerSession: 0,
           sessionDuration: 30,
           categoryId: category.id,
