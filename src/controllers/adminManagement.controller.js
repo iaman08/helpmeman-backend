@@ -2,7 +2,7 @@ const prisma = require('../config/prisma');
 const config = require('../config/env');
 const { createClient } = require('@supabase/supabase-js');
 const { logAuditEvent, getClientIp } = require('../services/auditLog.service');
-const { invalidateCachedUser } = require('../services/auth.service');
+const { invalidateCachedUser, findSupabaseUserByEmail } = require('../services/auth.service');
 
 const adminSupabase = createClient(config.supabase.url, config.supabase.serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false }
@@ -104,9 +104,8 @@ async function createAdmin(req, res) {
         authError.code === 'email_exists';
 
       if (isAlreadyRegistered) {
-        // Find existing Supabase user by email
-        const { data: listData } = await adminSupabase.auth.admin.listUsers();
-        const sbUser = listData?.users?.find(u => u.email?.toLowerCase() === normalizedEmail);
+        // Find existing Supabase user by email across all pages
+        const sbUser = await findSupabaseUserByEmail(normalizedEmail, adminSupabase);
 
         if (sbUser) {
           authUserId = sbUser.id;
@@ -430,7 +429,15 @@ async function resetAdminPassword(req, res) {
     
     const newPassword = generateRandomPassword();
     
-    const { error: authError } = await adminSupabase.auth.admin.updateUserById(id, { password: newPassword });
+    let { error: authError } = await adminSupabase.auth.admin.updateUserById(id, { password: newPassword });
+    if (authError && admin.email) {
+      // Fallback: If ID mismatch between Prisma and Supabase Auth, look up by email
+      const sbUser = await findSupabaseUserByEmail(admin.email, adminSupabase);
+      if (sbUser) {
+        const retryRes = await adminSupabase.auth.admin.updateUserById(sbUser.id, { password: newPassword });
+        authError = retryRes.error;
+      }
+    }
     if (authError) {
       return res.status(400).json({ error: authError.message });
     }

@@ -446,26 +446,105 @@ async function login(req, res) {
   }
 
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    let { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase(),
       password,
     });
 
     if (error || !data.user || !data.session) {
-      console.warn(`[AUTH] Login failed for email: ${email}. Error: ${error?.message}`);
-      try {
-        const { logAuditEvent } = require('../services/auditLog.service');
-        logAuditEvent({
-          action: 'LOGIN_FAILED',
-          actorId: email.toLowerCase(),
-          req,
-          isSuspicious: true,
-          flagReason: 'Invalid credentials provided',
-          metadata: { attemptedEmail: email.toLowerCase(), error: error?.message },
-        }).catch(() => {});
-      } catch (e) {}
+      console.warn(`[AUTH] Initial login failed for email: ${email}. Error: ${error?.message}`);
 
-      return res.status(401).json({ error: 'Invalid email or password' });
+      // Intelligent Diagnostic & Auto-Recovery Layer
+      try {
+        const { findSupabaseUserByEmail } = require('../services/auth.service');
+        const sbUser = await findSupabaseUserByEmail(email);
+
+        if (sbUser) {
+          // 1. Check if email is unconfirmed
+          if (!sbUser.email_confirmed_at) {
+            const prismaUser = await prisma.user.findFirst({
+              where: { email: { equals: email.trim(), mode: 'insensitive' } }
+            });
+
+            if (prismaUser && (prismaUser.isEmailVerified || prismaUser.role === 'ADMIN' || prismaUser.role === 'SUPER_ADMIN')) {
+              console.log(`[AUTH] Auto-confirming unconfirmed email in Supabase Auth for verified account: ${email}`);
+              await supabase.auth.admin.updateUserById(sbUser.id, { email_confirm: true });
+              const retry = await supabase.auth.signInWithPassword({
+                email: email.toLowerCase(),
+                password,
+              });
+              if (!retry.error && retry.data?.user && retry.data?.session) {
+                data = retry.data;
+                error = null;
+              }
+            } else {
+              return res.status(403).json({
+                error: 'Please verify your email address before signing in. Check your inbox for the verification code.',
+                requiresVerification: true,
+                email: email.toLowerCase(),
+                code: 'EMAIL_NOT_VERIFIED'
+              });
+            }
+          }
+
+          // 2. Check if account is a Google OAuth account without a password
+          if (error) {
+            const providers = sbUser.app_metadata?.providers || [];
+            const identities = sbUser.identities || [];
+            const isGoogleOnly = (providers.includes('google') || identities.some(i => i.provider === 'google')) && !providers.includes('email');
+
+            if (isGoogleOnly) {
+              return res.status(401).json({
+                error: 'This account was registered using Google Sign-In. Please click "Continue with Google" to sign in, or click "Forgot password?" to set a password.',
+                code: 'GOOGLE_SIGNIN_REQUIRED',
+                provider: 'google'
+              });
+            }
+          }
+        } else {
+          // User exists in Prisma database but not in Supabase Auth
+          const prismaUser = await prisma.user.findFirst({
+            where: { email: { equals: email.trim(), mode: 'insensitive' } }
+          });
+          if (prismaUser && (prismaUser.role === 'ADMIN' || prismaUser.role === 'SUPER_ADMIN')) {
+            console.log(`[AUTH] Provisioning missing Supabase Auth account for administrator: ${email}`);
+            const { data: createdSb, error: createError } = await supabase.auth.admin.createUser({
+              email: email.toLowerCase(),
+              password,
+              email_confirm: true,
+              user_metadata: { name: prismaUser.name, role: prismaUser.role }
+            });
+            if (!createError && createdSb?.user) {
+              const retry = await supabase.auth.signInWithPassword({
+                email: email.toLowerCase(),
+                password,
+              });
+              if (!retry.error && retry.data?.user && retry.data?.session) {
+                data = retry.data;
+                error = null;
+              }
+            }
+          }
+        }
+      } catch (diagErr) {
+        console.warn('[AUTH] Diagnostic check error during login:', diagErr.message);
+      }
+
+      if (error || !data?.user || !data?.session) {
+        try {
+          const { logAuditEvent } = require('../services/auditLog.service');
+          logAuditEvent({
+            action: 'LOGIN_FAILED',
+            actorId: email.toLowerCase(),
+            req,
+            isSuspicious: true,
+            flagReason: 'Invalid credentials provided',
+            metadata: { attemptedEmail: email.toLowerCase(), error: error?.message },
+          }).catch(() => {});
+        } catch (e) {}
+
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
     }
 
     const userService = require('../services/user.service');
@@ -927,8 +1006,8 @@ async function changePassword(req, res) {
     if (supabaseError && req.user.email) {
       console.warn('[CHANGE_PASSWORD] Direct ID update failed, attempting lookup by email:', req.user.email);
       try {
-        const { data: listData } = await supabase.auth.admin.listUsers();
-        const found = listData?.users?.find((u) => u.email?.toLowerCase() === req.user.email?.toLowerCase());
+        const { findSupabaseUserByEmail } = require('../services/auth.service');
+        const found = await findSupabaseUserByEmail(req.user.email);
         if (found) {
           const retryRes = await supabase.auth.admin.updateUserById(found.id, {
             password: newPassword,

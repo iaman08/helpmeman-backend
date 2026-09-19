@@ -92,8 +92,22 @@ async function findOrCreateUser(supabaseUser) {
         });
         console.log(`[USER_SERVICE] User profile updated successfully. New ID: ${user.id}`);
       } catch (updateErr) {
-        console.error('[USER_SERVICE] Database update failed:', updateErr.message);
-        throw new Error(`DATABASE_ERROR during update: ${updateErr.message}`);
+        console.warn('[USER_SERVICE] Direct ID migration failed (likely foreign key constraint), falling back to profile metadata update:', updateErr.message);
+        try {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              name: name,
+              avatar: avatar || user.avatar,
+              isEmailVerified: isEmailVerified,
+            },
+            include: mentorInclude
+          });
+          console.log(`[USER_SERVICE] User profile updated without changing ID. Current ID: ${user.id}`);
+        } catch (fallbackErr) {
+          console.error('[USER_SERVICE] Database fallback update failed:', fallbackErr.message);
+          throw new Error(`DATABASE_ERROR during update: ${fallbackErr.message}`);
+        }
       }
     } else {
       console.log('[USER_SERVICE] Database profile is up to date.');

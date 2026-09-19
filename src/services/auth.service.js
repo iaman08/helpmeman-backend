@@ -163,4 +163,33 @@ async function verifySession(token) {
   return promise;
 }
 
-module.exports = { verifySession, invalidateCachedUser };
+/**
+ * Find a Supabase user by email across all pages.
+ * Handles pagination properly so users beyond the first 50 are found.
+ *
+ * @param {string} email
+ * @param {object} [client] - Optional custom Supabase client (defaults to config supabase)
+ * @returns {Promise<object|null>} The Supabase Auth user record or null
+ */
+async function findSupabaseUserByEmail(email, client = supabase) {
+  if (!email) return null;
+  const targetEmail = email.toLowerCase().trim();
+  let page = 1;
+  const perPage = 1000;
+  while (true) {
+    const { data, error } = await client.auth.admin.listUsers({ page, perPage });
+    if (error) {
+      console.warn('[AUTH_SERVICE] listUsers error:', error.message);
+      break;
+    }
+    if (!data?.users || data.users.length === 0) break;
+    const found = data.users.find((u) => u.email?.toLowerCase() === targetEmail);
+    if (found) return found;
+    if (data.users.length < perPage) break;
+    page++;
+  }
+  return null;
+}
+
+module.exports = { verifySession, invalidateCachedUser, findSupabaseUserByEmail };
+
