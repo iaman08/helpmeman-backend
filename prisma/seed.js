@@ -44,6 +44,14 @@ async function main() {
   });
   console.log(`✅ Admin: ${omiAdmin.email}`);
 
+  const rishavHash = await hashPw('12345678');
+  const rishavAdmin = await prisma.user.upsert({
+    where: { email: 'rishav@helpmeman.com' },
+    update: { passwordHash: rishavHash, role: 'ADMIN', isEmailVerified: true },
+    create: { name: 'Rishav', email: 'rishav@helpmeman.com', passwordHash: rishavHash, role: 'ADMIN', isEmailVerified: true },
+  });
+  console.log(`✅ Admin: ${rishavAdmin.email}`);
+
   // ───   // Clear old mentors to keep the database fresh with the new set
   const oldMentorEmails = [
     'aarav.mentor@helpmeman.com',
