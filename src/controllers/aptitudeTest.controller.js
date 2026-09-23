@@ -149,7 +149,7 @@ async function getStatus(req, res) {
 
     return res.json({
       unlocked,
-      priceINR: 2,
+      priceINR: 199,
     });
   } catch (error) {
     console.error("[Aptitude] Error checking status:", error);
@@ -163,7 +163,7 @@ async function getStatus(req, res) {
 async function createAptitudeOrder(req, res) {
   try {
     const userId = req.user.id;
-    const amountInPaise = 200; // ₹2 INR (200 paise)
+    const amountInPaise = 19900; // ₹199 INR (19900 paise)
 
     const order = await createOrder({
       amount: amountInPaise,
