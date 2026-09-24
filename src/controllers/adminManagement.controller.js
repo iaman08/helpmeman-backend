@@ -70,8 +70,14 @@ async function createAdmin(req, res) {
       return res.status(400).json({ error: 'Email, name, and password are required' });
     }
 
+    if (role === 'SUPER_ADMIN') {
+      return res.status(403).json({
+        error: 'There can only be one Super Admin in the system. You can only create regular Admins.',
+        code: 'SINGLE_SUPER_ADMIN_ONLY'
+      });
+    }
     const normalizedEmail = email.toLowerCase().trim();
-    const targetRole = role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN';
+    const targetRole = 'ADMIN';
 
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -235,9 +241,23 @@ async function updateAdmin(req, res) {
     if (!adminToUpdate) {
       return res.status(404).json({ error: 'Admin not found' });
     }
+
+    if (adminToUpdate.role === 'SUPER_ADMIN') {
+      return res.status(403).json({
+        error: 'The Super Admin account is protected and cannot be modified here.',
+        code: 'SUPER_ADMIN_IMMUTABLE'
+      });
+    }
+
+    if (role === 'SUPER_ADMIN') {
+      return res.status(403).json({
+        error: 'There can only be one Super Admin in the system. Promoting to Super Admin is disabled.',
+        code: 'SINGLE_SUPER_ADMIN_ONLY'
+      });
+    }
     
-    if (role && !['ADMIN', 'SUPER_ADMIN'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be ADMIN or SUPER_ADMIN' });
+    if (role && role !== 'ADMIN') {
+      return res.status(400).json({ error: 'Role must be ADMIN' });
     }
     
     const dataToUpdate = {};
@@ -461,6 +481,169 @@ async function resetAdminPassword(req, res) {
   }
 }
 
+async function revokeAdminRole(req, res) {
+  try {
+    const { id } = req.params;
+    
+    if (id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot remove your own admin privileges' });
+    }
+    
+    const admin = await prisma.user.findUnique({ where: { id } });
+    if (!admin) {
+      return res.status(404).json({ error: 'Admin not found' });
+    }
+    
+    if (admin.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Cannot revoke role of the Super Admin' });
+    }
+    
+    if (admin.role !== 'ADMIN') {
+      return res.status(400).json({ error: 'User is not an administrator' });
+    }
+    
+    // Demote to STUDENT
+    const updatedUser = await prisma.user.update({
+      where: { id },
+      data: { role: 'STUDENT' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        status: true,
+        lastSeen: true,
+        createdAt: true
+      }
+    });
+    
+    // Update Supabase metadata
+    await adminSupabase.auth.admin.updateUserById(id, {
+      user_metadata: { role: 'STUDENT' }
+    }).catch(err => console.warn('[ADMIN_MGMT] Supabase update metadata warning:', err.message));
+    
+    invalidateCachedUser(id);
+    
+    await logAuditEvent({
+      action: 'ADMIN_ROLE_REVOKED',
+      actorId: req.user.id,
+      targetId: id,
+      oldValue: 'ADMIN',
+      newValue: 'STUDENT',
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email, targetEmail: admin.email }
+    });
+    
+    res.json({
+      data: updatedUser,
+      message: `Admin privileges removed for ${admin.name}. Account reverted to regular user.`
+    });
+  } catch (error) {
+    console.error('Error revoking admin role:', error);
+    res.status(500).json({ error: 'Failed to revoke admin role' });
+  }
+}
+
+async function promoteToAdmin(req, res) {
+  try {
+    const { userId, email } = req.body;
+    if (!userId && !email) {
+      return res.status(400).json({ error: 'userId or email is required' });
+    }
+    
+    const where = userId
+      ? { id: userId }
+      : { email: email.toLowerCase().trim() };
+      
+    const user = await prisma.user.findFirst({ where });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (user.role === 'SUPER_ADMIN') {
+      return res.status(400).json({ error: 'User is already Super Admin' });
+    }
+    
+    if (user.role === 'ADMIN') {
+      return res.status(400).json({ error: 'User is already an Admin' });
+    }
+    
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { role: 'ADMIN' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        status: true,
+        lastSeen: true,
+        createdAt: true
+      }
+    });
+    
+    await adminSupabase.auth.admin.updateUserById(user.id, {
+      user_metadata: { role: 'ADMIN' }
+    }).catch(err => console.warn('[ADMIN_MGMT] Supabase update metadata warning:', err.message));
+    
+    invalidateCachedUser(user.id);
+    
+    await logAuditEvent({
+      action: 'ADMIN_ROLE_GRANTED',
+      actorId: req.user.id,
+      targetId: user.id,
+      oldValue: user.role,
+      newValue: 'ADMIN',
+      endpoint: req.originalUrl,
+      ip: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { actorEmail: req.user.email, targetEmail: user.email }
+    });
+    
+    res.json({
+      data: updatedUser,
+      message: `User ${user.name} has been made an Admin successfully.`
+    });
+  } catch (error) {
+    console.error('Error promoting user to admin:', error);
+    res.status(500).json({ error: 'Failed to promote user to admin' });
+  }
+}
+
+async function searchUsersToPromote(req, res) {
+  try {
+    const { q = '' } = req.query;
+    if (!q || q.trim().length < 2) {
+      return res.json({ data: [] });
+    }
+    const query = q.trim();
+    const users = await prisma.user.findMany({
+      where: {
+        role: { notIn: ['ADMIN', 'SUPER_ADMIN'] },
+        status: 'ACTIVE',
+        OR: [
+          { name: { contains: query, mode: 'insensitive' } },
+          { email: { contains: query, mode: 'insensitive' } }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        avatar: true
+      },
+      take: 10
+    });
+    res.json({ data: users });
+  } catch (error) {
+    console.error('Error searching users to promote:', error);
+    res.status(500).json({ error: 'Failed to search users' });
+  }
+}
+
 module.exports = {
   listAdmins,
   createAdmin,
@@ -468,5 +651,8 @@ module.exports = {
   disableAdmin,
   enableAdmin,
   deleteAdmin,
-  resetAdminPassword
+  resetAdminPassword,
+  revokeAdminRole,
+  promoteToAdmin,
+  searchUsersToPromote
 };

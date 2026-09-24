@@ -53,8 +53,11 @@ function parseEmailList(envValue) {
 function getExpectedRole(email) {
   const normalizedEmail = email.toLowerCase().trim();
 
-  const superAdminEmails = parseEmailList(process.env.SUPER_ADMIN_EMAILS);
-  if (superAdminEmails.includes(normalizedEmail)) {
+  // Strictly enforce only ONE Super Admin email in the platform
+  const superAdminEmails = parseEmailList(process.env.SUPER_ADMIN_EMAILS || process.env.SUPER_ADMIN_EMAIL);
+  const primarySuperAdminEmail = superAdminEmails[0] || 'iamanraj@icloud.com';
+
+  if (normalizedEmail === primarySuperAdminEmail) {
     return 'SUPER_ADMIN';
   }
 

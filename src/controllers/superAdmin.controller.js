@@ -152,6 +152,22 @@ async function changeUserRole(req, res) {
       });
     }
 
+    // Guard: cannot promote anyone to SUPER_ADMIN (strictly only ONE Super Admin in system)
+    if (newRole === 'SUPER_ADMIN') {
+      return res.status(403).json({
+        error: 'There can only be one Super Admin in the system. Creating additional Super Admins is not allowed.',
+        code: 'SINGLE_SUPER_ADMIN_ONLY',
+      });
+    }
+
+    // Guard: cannot modify the Super Admin account
+    if (targetUser.role === 'SUPER_ADMIN') {
+      return res.status(403).json({
+        error: 'The Super Admin account role is protected and cannot be changed.',
+        code: 'SUPER_ADMIN_IMMUTABLE',
+      });
+    }
+
     // Guard: actor must be able to manage the target's CURRENT role
     if (!canManageRole(actor.role, targetUser.role)) {
       return res.status(403).json({
@@ -161,23 +177,11 @@ async function changeUserRole(req, res) {
     }
 
     // Guard: actor must be able to assign the NEW role
-    // SUPER_ADMIN can assign any role; others can only assign roles below their own
     if (actor.role !== 'SUPER_ADMIN' && ROLE_LEVELS[newRole] >= ROLE_LEVELS[actor.role]) {
       return res.status(403).json({
         error: `Cannot promote to ${newRole}: exceeds your privilege level`,
         code: 'INSUFFICIENT_PRIVILEGE',
       });
-    }
-
-    // Guard: cannot demote the last SUPER_ADMIN
-    if (targetUser.role === 'SUPER_ADMIN' && newRole !== 'SUPER_ADMIN') {
-      const superAdminCount = await prisma.user.count({ where: { role: 'SUPER_ADMIN' } });
-      if (superAdminCount <= 1) {
-        return res.status(403).json({
-          error: 'Cannot demote the last remaining Super Admin. Promote another user first.',
-          code: 'LAST_SUPER_ADMIN',
-        });
-      }
     }
 
     // Execute the role change

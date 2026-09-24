@@ -517,19 +517,27 @@ async function main() {
   });
   console.log(`  ✅ Student: student@helpmeman.com`);
 
-  // ─── Super Admin User ───
+  // ─── Super Admin User (Strictly 1 Super Admin) ───
   const superAdminHash = await hashPw('password123');
   const superAdmin = await prisma.user.upsert({
-    where: { email: 'official.diljha@gmail.com' },
-    update: { passwordHash: superAdminHash },
-    create: { name: 'Super Admin', email: 'official.diljha@gmail.com', passwordHash: superAdminHash, role: 'SUPER_ADMIN', isEmailVerified: true },
+    where: { email: 'iamanraj@icloud.com' },
+    update: { passwordHash: superAdminHash, role: 'SUPER_ADMIN' },
+    create: { name: 'Aman Raj', email: 'iamanraj@icloud.com', passwordHash: superAdminHash, role: 'SUPER_ADMIN', isEmailVerified: true },
   });
   console.log(`✅ Super Admin: ${superAdmin.email}`);
 
+  // Seed Admin user
+  const adminHash = await hashPw('password123');
+  await prisma.user.upsert({
+    where: { email: 'official.diljha@gmail.com' },
+    update: { passwordHash: adminHash, role: 'ADMIN' },
+    create: { name: 'DilJha', email: 'official.diljha@gmail.com', passwordHash: adminHash, role: 'ADMIN', isEmailVerified: true },
+  });
+
   console.log('\n🎉 Seeding complete!\n');
   console.log('Test accounts:');
-  console.log('  SuperAdmin: official.diljha@gmail.com / password123');
-  console.log('  Admin:   admin@helpmeman.com / password123');
+  console.log('  SuperAdmin: iamanraj@icloud.com / password123');
+  console.log('  Admin:   official.diljha@gmail.com / password123');
   console.log('  Student: student@helpmeman.com / password123');
   console.log('  Mentors: mentor@helpmeman.com / password123');
 }
