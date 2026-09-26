@@ -60,6 +60,7 @@ const aptitudeTestRoutes = require('./routes/aptitudeTest.routes');
 const cpProfileRoutes = require('./routes/cpProfile.routes');
 const bugReportRoutes = require('./routes/bugReport.routes');
 const couponRoutes = require('./routes/coupon.routes');
+const linkedinRoutes = require('./routes/linkedin.routes');
 const { ensureDefaultCoupons } = require('./services/coupon.service');
 
 const app = express();
@@ -210,8 +211,10 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/auth/linkedin', linkedinRoutes);
 app.use('/api/v2/auth', securedAuthRoutes);
 
+app.use('/api/linkedin', linkedinRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/mentors', mentorRoutes);
 app.use('/api/mentor/onboarding', onboardingRoutes);

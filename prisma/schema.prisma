@@ -56,6 +56,8 @@ model User {
   deletionRequestsCreated  UserDeletionRequest[] @relation("RequesterUserDeletion")
   deletionRequestsReviewed UserDeletionRequest[] @relation("ReviewerUserDeletion")
   couponUsages             CouponUsage[]
+  linkedinConnection       LinkedInConnection?
+  linkedinProfile          LinkedInProfile?
 
   @@index([username])
 }
@@ -722,5 +724,41 @@ model CouponUsage {
 enum DiscountType {
   PERCENTAGE
   FLAT
+}
+
+model LinkedInConnection {
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedinUserId        String    @unique
+  accessTokenEncrypted  String    @db.Text
+  refreshTokenEncrypted String?   @db.Text
+  tokenExpiresAt        DateTime?
+  connectedAt           DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  profile               LinkedInProfile?
+
+  @@index([linkedinUserId])
+}
+
+model LinkedInProfile {
+  id                   String              @id @default(cuid())
+  userId               String              @unique
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedinConnectionId String?             @unique
+  linkedinConnection   LinkedInConnection? @relation(fields: [linkedinConnectionId], references: [id], onDelete: SetNull)
+  name                 String?
+  headline             String?
+  about                String?             @db.Text
+  profileImage         String?
+  location             String?
+  profileUrl           String?
+  currentPosition      String?
+  company              String?
+  importedAt           DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  rawData              Json?
+
+  @@index([userId])
 }
 

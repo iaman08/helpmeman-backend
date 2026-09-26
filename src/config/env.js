@@ -79,4 +79,9 @@ module.exports = {
   discord: {
     ticketWebhookUrl: process.env.DISCORD_TICKET_WEBHOOK_URL,
   },
+  linkedin: {
+    clientId: process.env.LINKEDIN_CLIENT_ID,
+    clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
+    redirectUri: process.env.LINKEDIN_REDIRECT_URI || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/onboarding/linkedin/callback`,
+  },
 };
