@@ -59,6 +59,29 @@ model User {
   linkedinConnection       LinkedInConnection?
   linkedinProfile          LinkedInProfile?
 
+  // Professional Profile Extension
+  headline                 String?
+  bio                      String?          @db.Text
+  bannerImageUrl           String?
+  bannerPosition           String?          @default("50% 50%")
+  currentCompany           String?
+  companyId                String?
+  jobTitle                 String?
+  university               String?
+  universityId             String?
+  degree                   String?
+  graduationYear           Int?
+  skills                   String[]         @default([])
+  city                     String?
+  state                    String?
+  country                  String?
+  websiteUrl               String?
+  socialLinks              Json?
+
+  following                UserFollow[]     @relation("UserFollowing")
+  followers                UserFollow[]     @relation("UserFollowers")
+  languages                UserLanguage[]
+
   @@index([username])
 }
 
@@ -461,6 +484,11 @@ model Mentor {
 
   languages           String[]         // Changed from String? to String[]
 
+  // Custom Banner & Headline Extension
+  headline            String?
+  bannerImageUrl      String?
+  bannerPosition      String?          @default("50% 50%")
+
   experienceYears     Int?
   isOnline            Boolean          @default(false)
   availabilities      Availability[]
@@ -760,5 +788,50 @@ model LinkedInProfile {
   rawData              Json?
 
   @@index([userId])
+}
+
+model UserFollow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+model UserLanguage {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  languageCode String?
+  languageName String
+  proficiency  String   @default("Fluent") // Native, Fluent, Professional, Intermediate, Basic
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, languageName])
+  @@index([userId, displayOrder])
+}
+
+model Organization {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  slug       String   @unique
+  type       String   @default("COMPANY") // COMPANY, UNIVERSITY, COLLEGE, STARTUP
+  logoUrl    String?
+  bannerUrl  String?
+  website    String?
+  domain     String?
+  isVerified Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([name])
+  @@index([slug])
 }
 

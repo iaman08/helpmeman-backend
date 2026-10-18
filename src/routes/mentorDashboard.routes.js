@@ -13,6 +13,8 @@ router.use(roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'));
 router.get('/me', mentor.getOwnProfile);
 router.put('/me', mentor.updateOwnProfile);
 router.put('/me/avatar', upload.single('avatar'), mentor.updateAvatar);
+router.put('/me/banner', upload.single('banner'), mentor.updateMentorBanner);
+router.delete('/me/banner', mentor.removeMentorBanner);
 router.post('/me/docs', upload.single('document'), mentor.uploadDoc);
 router.get('/me/availability', mentor.getAvailability);
 router.put('/me/availability', mentor.setAvailability);

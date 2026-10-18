@@ -3,17 +3,74 @@ const { hashPassword, comparePassword } = require('../utils/hash');
 const { uploadImage, uploadDocument } = require('../services/upload.service');
 const { getUserNotifications, markAsRead, markAllReadForUser, deleteNotification, getNotificationAnalytics, registerDevice, removeDevice, updatePreferences, getPreferences } = require('../services/notification.service');
 const { saveUserProfile, getUserProfile, isUsernameAvailable, setUsername } = require('../services/userProfile.service');
+const { resolveOrganization } = require('../services/organization.service');
 
 async function getProfile(req, res) {
   try {
-    const [user, mentor, profile, onboarding] = await Promise.all([
+    const [user, mentor, profile, onboarding, followersCount, followingCount, userLanguages] = await Promise.all([
       prisma.user.findUnique({
         where: { id: req.user.id },
-        select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, isEmailVerified: true, createdAt: true, username: true, currentRole: true, currency: true, mustChangePassword: true, twoFactorEnabled: true }
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          avatar: true,
+          role: true,
+          onboardingRole: true,
+          isEmailVerified: true,
+          createdAt: true,
+          username: true,
+          currentRole: true,
+          currency: true,
+          mustChangePassword: true,
+          twoFactorEnabled: true,
+          // Profile extension
+          headline: true,
+          bio: true,
+          bannerImageUrl: true,
+          bannerPosition: true,
+          currentCompany: true,
+          companyId: true,
+          jobTitle: true,
+          university: true,
+          universityId: true,
+          degree: true,
+          graduationYear: true,
+          skills: true,
+          city: true,
+          state: true,
+          country: true,
+          websiteUrl: true,
+          socialLinks: true,
+        }
       }),
       prisma.mentor.findUnique({
         where: { userId: req.user.id },
-        select: { id: true, approvalStatus: true, isActive: true }
+        select: {
+          id: true,
+          approvalStatus: true,
+          isActive: true,
+          displayName: true,
+          bio: true,
+          avatar: true,
+          bannerImageUrl: true,
+          bannerPosition: true,
+          headline: true,
+          currentRole: true,
+          company: true,
+          institutionType: true,
+          institutionName: true,
+          expertise: true,
+          rating: true,
+          totalSessions: true,
+          pricePerSession: true,
+          languages: true,
+          country: true,
+          state: true,
+          city: true,
+          location: true,
+        }
       }),
       prisma.mentorProfile.findUnique({
         where: { mentorId: req.user.id },
@@ -23,35 +80,122 @@ async function getProfile(req, res) {
         where: { userId: req.user.id },
         select: { completed: true }
       }),
+      prisma.userFollow.count({ where: { followingId: req.user.id } }),
+      prisma.userFollow.count({ where: { followerId: req.user.id } }),
+      prisma.userLanguage.findMany({
+        where: { userId: req.user.id },
+        orderBy: { displayOrder: 'asc' },
+        select: { id: true, languageCode: true, languageName: true, proficiency: true, displayOrder: true }
+      }),
+    ]);
+
+    // Automatically resolve organization branding
+    const compName = user?.currentCompany || mentor?.company || (mentor?.institutionType === 'COMPANY' ? mentor?.institutionName : null);
+    const uniName = user?.university || (mentor?.institutionType === 'COLLEGE' ? mentor?.institutionName : null);
+
+    const [companyOrg, universityOrg] = await Promise.all([
+      compName ? resolveOrganization(compName, 'COMPANY') : null,
+      uniName ? resolveOrganization(uniName, 'UNIVERSITY') : null,
     ]);
 
     const enrichedUser = {
       ...user,
       onboardingRole: user?.onboardingRole || null,
       username: user?.username || null,
-      currentRole: user?.currentRole || null,
+      currentRole: user?.currentRole || user?.jobTitle || mentor?.currentRole || null,
+      headline: user?.headline || mentor?.headline || (user?.currentRole ? `${user.currentRole}` : null),
+      bio: user?.bio || mentor?.bio || null,
+      currentCompany: user?.currentCompany || mentor?.company || (mentor?.institutionType === 'COMPANY' ? mentor?.institutionName : null),
+      university: user?.university || (mentor?.institutionType === 'COLLEGE' ? mentor?.institutionName : null),
+      bannerImageUrl: user?.bannerImageUrl || mentor?.bannerImageUrl || null,
+      bannerPosition: user?.bannerPosition || mentor?.bannerPosition || '50% 50%',
+      skills: (user?.skills && user.skills.length > 0) ? user.skills : (mentor?.expertise || []),
+      city: user?.city || mentor?.city || null,
+      state: user?.state || mentor?.state || null,
+      country: user?.country || mentor?.country || null,
+      followersCount: followersCount || 0,
+      followingCount: followingCount || 0,
+      languages: userLanguages || [],
+      companyBranding: companyOrg,
+      universityBranding: universityOrg,
     };
 
     const enrichedMentor = mentor ? {
       ...mentor,
       onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
+      bannerImageUrl: mentor.bannerImageUrl || user?.bannerImageUrl || null,
+      bannerPosition: mentor.bannerPosition || user?.bannerPosition || '50% 50%',
+      headline: mentor.headline || user?.headline || null,
     } : null;
 
     res.json({ user: enrichedUser, mentor: enrichedMentor });
-  } catch (e) { res.status(500).json({ error: 'Failed to get profile' }); }
+  } catch (e) {
+    console.error('getProfile error:', e);
+    res.status(500).json({ error: 'Failed to get profile' });
+  }
 }
 
 async function updateProfile(req, res) {
   try {
-    const { name, phone, username, currentRole, currency } = req.body;
+    const {
+      name,
+      phone,
+      username,
+      currentRole,
+      currency,
+      headline,
+      bio,
+      bannerPosition,
+      currentCompany,
+      companyId,
+      jobTitle,
+      university,
+      universityId,
+      degree,
+      graduationYear,
+      skills,
+      city,
+      state,
+      country,
+      websiteUrl,
+      socialLinks,
+    } = req.body;
+
     const data = {};
-    if (name) data.name = name;
-    if (phone !== undefined) data.phone = phone;
-    if (currentRole !== undefined) data.currentRole = currentRole;
+    if (name) data.name = name.trim();
+    if (phone !== undefined) data.phone = phone ? phone.trim() : null;
+    if (currentRole !== undefined) data.currentRole = currentRole ? currentRole.trim() : null;
     if (currency !== undefined) data.currency = currency;
+    if (headline !== undefined) data.headline = headline ? headline.trim() : null;
+    if (bio !== undefined) data.bio = bio ? bio.trim() : null;
+    if (bannerPosition !== undefined) data.bannerPosition = bannerPosition;
+    if (currentCompany !== undefined) data.currentCompany = currentCompany ? currentCompany.trim() : null;
+    if (companyId !== undefined) data.companyId = companyId;
+    if (jobTitle !== undefined) data.jobTitle = jobTitle ? jobTitle.trim() : null;
+    if (university !== undefined) data.university = university ? university.trim() : null;
+    if (universityId !== undefined) data.universityId = universityId;
+    if (degree !== undefined) data.degree = degree ? degree.trim() : null;
+    if (graduationYear !== undefined) {
+      data.graduationYear = graduationYear ? parseInt(graduationYear) || null : null;
+    }
+    if (skills !== undefined) {
+      if (Array.isArray(skills)) {
+        data.skills = skills.map(s => String(s).trim()).filter(Boolean);
+      } else if (typeof skills === 'string') {
+        data.skills = skills.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+    if (city !== undefined) data.city = city ? city.trim() : null;
+    if (state !== undefined) data.state = state ? state.trim() : null;
+    if (country !== undefined) data.country = country ? country.trim() : null;
+    if (websiteUrl !== undefined) data.websiteUrl = websiteUrl ? websiteUrl.trim() : null;
+    if (socialLinks !== undefined) {
+      data.socialLinks = typeof socialLinks === 'string' ? JSON.parse(socialLinks) : socialLinks;
+    }
+
     if (req.file) data.avatar = await uploadImage(req.file, 'avatars');
 
-    // Handle Username Uniqueness (if requested)
+    // Handle Username Uniqueness
     if (username) {
       const usernameResult = await setUsername(req.user.id, username);
       if (!usernameResult.success) {
@@ -60,37 +204,99 @@ async function updateProfile(req, res) {
       data.username = username.toLowerCase().trim();
     }
 
-    // Update all fields in Postgres (single source of truth)
+    // Update User in Postgres
     const user = await prisma.user.update({
       where: { id: req.user.id },
       data,
-      select: { id: true, name: true, email: true, phone: true, avatar: true, role: true, onboardingRole: true, username: true, currentRole: true, currency: true }
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        avatar: true,
+        role: true,
+        onboardingRole: true,
+        username: true,
+        currentRole: true,
+        currency: true,
+        headline: true,
+        bio: true,
+        bannerImageUrl: true,
+        bannerPosition: true,
+        currentCompany: true,
+        companyId: true,
+        jobTitle: true,
+        university: true,
+        universityId: true,
+        degree: true,
+        graduationYear: true,
+        skills: true,
+        city: true,
+        state: true,
+        country: true,
+        websiteUrl: true,
+        socialLinks: true,
+      }
     });
 
-    // Fetch mentor details
-    const mentor = await prisma.mentor.findUnique({
-      where: { userId: req.user.id },
-      select: { id: true, approvalStatus: true, isActive: true }
-    });
+    // If user is a mentor, sync overlapping fields to Mentor model
+    const mentorUpdateData = {};
+    if (data.name) mentorUpdateData.displayName = data.name;
+    if (data.avatar !== undefined) mentorUpdateData.avatar = data.avatar;
+    if (data.bio !== undefined) mentorUpdateData.bio = data.bio;
+    if (data.headline !== undefined) mentorUpdateData.headline = data.headline;
+    if (data.bannerPosition !== undefined) mentorUpdateData.bannerPosition = data.bannerPosition;
+    if (data.currentCompany !== undefined) mentorUpdateData.company = data.currentCompany;
+    if (data.jobTitle !== undefined || data.currentRole !== undefined) {
+      mentorUpdateData.currentRole = data.jobTitle || data.currentRole;
+    }
+    if (data.skills !== undefined && data.skills.length > 0) {
+      mentorUpdateData.expertise = data.skills;
+    }
+    if (data.city !== undefined) mentorUpdateData.city = data.city;
+    if (data.state !== undefined) mentorUpdateData.state = data.state;
+    if (data.country !== undefined) mentorUpdateData.country = data.country;
+    if (data.city || data.state || data.country) {
+      mentorUpdateData.location = [user.city, user.state, user.country].filter(Boolean).join(', ');
+    }
 
-    // If they are a mentor, keep mentor.avatar in sync with user.avatar
-    if (data.avatar !== undefined || req.file) {
-      const avatarToSync = data.avatar !== undefined ? data.avatar : user.avatar;
+    if (Object.keys(mentorUpdateData).length > 0) {
       await prisma.mentor.updateMany({
         where: { userId: req.user.id },
-        data: { avatar: avatarToSync }
-      }).catch(err => console.error('[PROFILE] Sync to Mentor avatar failed:', err.message));
+        data: mentorUpdateData,
+      }).catch(err => console.error('[PROFILE] Sync to Mentor failed:', err.message));
     }
+
+    // Resolve organization branding
+    const [companyOrg, universityOrg] = await Promise.all([
+      user.currentCompany ? resolveOrganization(user.currentCompany, 'COMPANY') : null,
+      user.university ? resolveOrganization(user.university, 'UNIVERSITY') : null,
+    ]);
+
+    const [followersCount, followingCount, userLanguages] = await Promise.all([
+      prisma.userFollow.count({ where: { followingId: req.user.id } }),
+      prisma.userFollow.count({ where: { followerId: req.user.id } }),
+      prisma.userLanguage.findMany({
+        where: { userId: req.user.id },
+        orderBy: { displayOrder: 'asc' },
+        select: { id: true, languageCode: true, languageName: true, proficiency: true, displayOrder: true }
+      }),
+    ]);
 
     const enrichedUser = {
       ...user,
-      onboardingRole: user.onboardingRole || null,
-      username: user.username || null,
-      currentRole: user.currentRole || null,
+      followersCount,
+      followingCount,
+      languages: userLanguages,
+      companyBranding: companyOrg,
+      universityBranding: universityOrg,
     };
 
-    res.json({ user: enrichedUser, mentor });
-  } catch (e) { console.error('Update failed:', e); res.status(500).json({ error: 'Update failed' }); }
+    res.json({ user: enrichedUser });
+  } catch (e) {
+    console.error('Update failed:', e);
+    res.status(500).json({ error: 'Update failed' });
+  }
 }
 
 async function changePassword(req, res) {
@@ -342,10 +548,289 @@ async function removeAvatar(req, res) {
   }
 }
 
+async function updateBanner(req, res) {
+  try {
+    let bannerImageUrl = req.body.bannerUrl;
+    if (req.file) {
+      bannerImageUrl = await uploadImage(req.file, 'banners');
+    }
+    if (!bannerImageUrl) {
+      return res.status(400).json({ error: 'No banner image uploaded' });
+    }
+
+    const bannerPosition = req.body.bannerPosition || '50% 50%';
+
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { bannerImageUrl, bannerPosition },
+      select: { id: true, bannerImageUrl: true, bannerPosition: true }
+    });
+
+    await prisma.mentor.updateMany({
+      where: { userId: req.user.id },
+      data: { bannerImageUrl, bannerPosition }
+    }).catch(() => {});
+
+    res.json({ success: true, bannerImageUrl: updated.bannerImageUrl, bannerPosition: updated.bannerPosition });
+  } catch (err) {
+    console.error('updateBanner error:', err);
+    res.status(500).json({ error: 'Failed to update banner' });
+  }
+}
+
+async function removeBanner(req, res) {
+  try {
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { bannerImageUrl: null }
+    });
+    await prisma.mentor.updateMany({
+      where: { userId: req.user.id },
+      data: { bannerImageUrl: null }
+    }).catch(() => {});
+
+    res.json({ success: true, message: 'Banner removed' });
+  } catch (err) {
+    console.error('removeBanner error:', err);
+    res.status(500).json({ error: 'Failed to remove banner' });
+  }
+}
+
+async function getPublicProfileCard(req, res) {
+  try {
+    const { identifier } = req.params;
+    if (!identifier) return res.status(400).json({ error: 'Identifier required' });
+
+    // Look up by id or username
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: identifier },
+          { username: identifier.toLowerCase() }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        avatar: true,
+        headline: true,
+        bio: true,
+        currentRole: true,
+        currentCompany: true,
+        jobTitle: true,
+        university: true,
+        degree: true,
+        graduationYear: true,
+        skills: true,
+        city: true,
+        state: true,
+        country: true,
+        websiteUrl: true,
+        socialLinks: true,
+        bannerImageUrl: true,
+        bannerPosition: true,
+        createdAt: true,
+        mentor: {
+          select: {
+            id: true,
+            displayName: true,
+            institutionType: true,
+            institutionName: true,
+            rating: true,
+            totalSessions: true,
+            pricePerSession: true,
+            isActive: true,
+            approvalStatus: true,
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const [followersCount, followingCount, languages, isFollowing] = await Promise.all([
+      prisma.userFollow.count({ where: { followingId: user.id } }),
+      prisma.userFollow.count({ where: { followerId: user.id } }),
+      prisma.userLanguage.findMany({
+        where: { userId: user.id },
+        orderBy: { displayOrder: 'asc' },
+        select: { id: true, languageCode: true, languageName: true, proficiency: true, displayOrder: true }
+      }),
+      req.user ? prisma.userFollow.findUnique({
+        where: { followerId_followingId: { followerId: req.user.id, followingId: user.id } }
+      }).then(r => Boolean(r)) : Promise.resolve(false)
+    ]);
+
+    const compName = user.currentCompany || (user.mentor?.institutionType === 'COMPANY' ? user.mentor.institutionName : null);
+    const uniName = user.university || (user.mentor?.institutionType === 'COLLEGE' ? user.mentor.institutionName : null);
+
+    const [companyOrg, universityOrg] = await Promise.all([
+      compName ? resolveOrganization(compName, 'COMPANY') : null,
+      uniName ? resolveOrganization(uniName, 'UNIVERSITY') : null,
+    ]);
+
+    res.json({
+      profile: {
+        ...user,
+        followersCount,
+        followingCount,
+        isFollowing,
+        languages,
+        companyBranding: companyOrg,
+        universityBranding: universityOrg,
+      }
+    });
+  } catch (err) {
+    console.error('getPublicProfileCard error:', err);
+    res.status(500).json({ error: 'Failed to fetch public profile' });
+  }
+}
+
+async function followUser(req, res) {
+  try {
+    const targetId = req.params.id;
+    if (req.user.id === targetId) {
+      return res.status(400).json({ error: 'You cannot follow yourself' });
+    }
+
+    const targetUser = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.userFollow.upsert({
+      where: { followerId_followingId: { followerId: req.user.id, followingId: targetId } },
+      create: { followerId: req.user.id, followingId: targetId },
+      update: {},
+    });
+
+    const followersCount = await prisma.userFollow.count({ where: { followingId: targetId } });
+
+    res.json({ success: true, isFollowing: true, followersCount });
+  } catch (err) {
+    console.error('followUser error:', err);
+    res.status(500).json({ error: 'Failed to follow user' });
+  }
+}
+
+async function unfollowUser(req, res) {
+  try {
+    const targetId = req.params.id;
+    await prisma.userFollow.deleteMany({
+      where: { followerId: req.user.id, followingId: targetId }
+    });
+
+    const followersCount = await prisma.userFollow.count({ where: { followingId: targetId } });
+
+    res.json({ success: true, isFollowing: false, followersCount });
+  } catch (err) {
+    console.error('unfollowUser error:', err);
+    res.status(500).json({ error: 'Failed to unfollow user' });
+  }
+}
+
+async function getFollowStatus(req, res) {
+  try {
+    const targetId = req.params.id;
+    const [followersCount, followingCount, isFollowing] = await Promise.all([
+      prisma.userFollow.count({ where: { followingId: targetId } }),
+      prisma.userFollow.count({ where: { followerId: targetId } }),
+      req.user ? prisma.userFollow.findUnique({
+        where: { followerId_followingId: { followerId: req.user.id, followingId: targetId } }
+      }).then(r => Boolean(r)) : Promise.resolve(false)
+    ]);
+
+    res.json({ isFollowing, followersCount, followingCount });
+  } catch (err) {
+    console.error('getFollowStatus error:', err);
+    res.status(500).json({ error: 'Failed to get follow status' });
+  }
+}
+
+async function getUserLanguages(req, res) {
+  try {
+    const languages = await prisma.userLanguage.findMany({
+      where: { userId: req.user.id },
+      orderBy: { displayOrder: 'asc' },
+    });
+    res.json({ languages });
+  } catch (err) {
+    console.error('getUserLanguages error:', err);
+    res.status(500).json({ error: 'Failed to get languages' });
+  }
+}
+
+async function updateUserLanguages(req, res) {
+  try {
+    const { languages } = req.body;
+    if (!Array.isArray(languages)) {
+      return res.status(400).json({ error: 'Languages must be an array' });
+    }
+
+    const VALID_PROFICIENCIES = ['Native', 'Fluent', 'Professional', 'Intermediate', 'Basic'];
+
+    // Deduplicate by languageName
+    const seen = new Set();
+    const cleanList = [];
+    for (let i = 0; i < languages.length; i++) {
+      const item = languages[i];
+      const name = item.languageName || item.name || (typeof item === 'string' ? item : '');
+      const trimmed = name.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const proficiency = VALID_PROFICIENCIES.includes(item.proficiency) ? item.proficiency : 'Fluent';
+      cleanList.push({
+        userId: req.user.id,
+        languageName: trimmed,
+        languageCode: item.languageCode || null,
+        proficiency,
+        displayOrder: typeof item.displayOrder === 'number' ? item.displayOrder : i,
+      });
+    }
+
+    // Atomic replace
+    await prisma.$transaction([
+      prisma.userLanguage.deleteMany({ where: { userId: req.user.id } }),
+      ...cleanList.map(data => prisma.userLanguage.create({ data }))
+    ]);
+
+    // Keep mentor languages array synced as well if user has a mentor profile
+    const langNames = cleanList.map(l => l.languageName);
+    await prisma.mentor.updateMany({
+      where: { userId: req.user.id },
+      data: { languages: langNames }
+    }).catch(() => {});
+
+    const updated = await prisma.userLanguage.findMany({
+      where: { userId: req.user.id },
+      orderBy: { displayOrder: 'asc' }
+    });
+
+    res.json({ success: true, languages: updated });
+  } catch (err) {
+    console.error('updateUserLanguages error:', err);
+    res.status(500).json({ error: 'Failed to update languages' });
+  }
+}
+
 module.exports = {
   getProfile,
   updateProfile,
   removeAvatar,
+  updateBanner,
+  removeBanner,
+  getPublicProfileCard,
+  followUser,
+  unfollowUser,
+  getFollowStatus,
+  getUserLanguages,
+  updateUserLanguages,
   changePassword,
   getBookings,
   getBookingDetail,
@@ -364,3 +849,4 @@ module.exports = {
   updateUsername,
   submitComplaint,
 };
+

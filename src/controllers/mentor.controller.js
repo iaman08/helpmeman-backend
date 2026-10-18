@@ -1,22 +1,32 @@
 const prisma = require('../config/prisma');
 const { uploadImage, uploadDocument } = require('../services/upload.service');
 const { getMentorNotifications } = require('../services/notification.service');
+const { resolveOrganization } = require('../services/organization.service');
 
 // Helper to map dynamic presence properties from the user model
 function enrichPresence(mentor) {
   if (!mentor) return null;
   const user = mentor.user;
   const avatar = (mentor.avatar && mentor.avatar.trim()) || (user && user.avatar && user.avatar.trim()) || null;
+  const bannerImageUrl = (mentor.bannerImageUrl && mentor.bannerImageUrl.trim()) || (user && user.bannerImageUrl && user.bannerImageUrl.trim()) || null;
+  const bannerPosition = mentor.bannerPosition || user?.bannerPosition || '50% 50%';
+  const headline = mentor.headline || user?.headline || mentor.currentRole || (user?.currentRole ? `${user.currentRole}` : null);
 
   // If mentor is missing avatar in DB but user has one, self-heal asynchronously
   if (!mentor.avatar && user?.avatar && mentor.id) {
     prisma.mentor.update({ where: { id: mentor.id }, data: { avatar: user.avatar } }).catch(() => {});
   }
 
+  const expertise = (mentor.expertise && mentor.expertise.length > 0) ? mentor.expertise : (user?.skills || []);
+
   if (!user) {
     return {
       ...mentor,
       avatar,
+      bannerImageUrl,
+      bannerPosition,
+      headline,
+      expertise,
     };
   }
 
@@ -47,9 +57,16 @@ function enrichPresence(mentor) {
     isOnline,
     activeStatus,
     avatar,
+    bannerImageUrl,
+    bannerPosition,
+    headline,
+    expertise,
     user: {
       ...user,
       avatar,
+      bannerImageUrl,
+      bannerPosition,
+      headline,
     },
   };
 }
@@ -57,17 +74,43 @@ function enrichPresence(mentor) {
 // ─── Public ───
 async function searchMentors(req, res) {
   try {
-    const { q, category, institutionType, institution, minPrice, maxPrice, minRating, expertise, sortBy = 'rating', page = 1, limit = 12 } = req.query;
-    const where = { approvalStatus: 'APPROVED', isActive: true };
-    if (category) { const cat = await prisma.category.findUnique({ where: { slug: category } }); if (cat) where.categoryId = cat.id; }
-    if (institutionType) where.institutionType = institutionType;
-    if (institution) where.institutionName = { contains: institution, mode: 'insensitive' };
-    if (minPrice) where.pricePerSession = { ...where.pricePerSession, gte: parseInt(minPrice) };
-    if (maxPrice) where.pricePerSession = { ...where.pricePerSession, lte: parseInt(maxPrice) };
-    if (minRating) where.rating = { gte: parseFloat(minRating) };
-    if (expertise) where.expertise = { hasSome: Array.isArray(expertise) ? expertise : [expertise] };
-    if (q) where.OR = [{ displayName: { contains: q, mode: 'insensitive' } }, { bio: { contains: q, mode: 'insensitive' } }, { institutionName: { contains: q, mode: 'insensitive' } }];
+    const { q, category, institutionType, institution, minPrice, maxPrice, minRating, expertise, language, sortBy = 'rating', page = 1, limit = 12 } = req.query;
+    const conditions = [{ approvalStatus: 'APPROVED', isActive: true }];
 
+    if (category) {
+      const cat = await prisma.category.findUnique({ where: { slug: category } });
+      if (cat) conditions.push({ categoryId: cat.id });
+    }
+    if (institutionType) conditions.push({ institutionType });
+    if (institution) conditions.push({ institutionName: { contains: institution, mode: 'insensitive' } });
+    if (minPrice) conditions.push({ pricePerSession: { gte: parseInt(minPrice) } });
+    if (maxPrice) conditions.push({ pricePerSession: { lte: parseInt(maxPrice) } });
+    if (minRating) conditions.push({ rating: { gte: parseFloat(minRating) } });
+    if (expertise) conditions.push({ expertise: { hasSome: Array.isArray(expertise) ? expertise : [expertise] } });
+
+    // Section 11: Mentor discovery by language spoken
+    if (language) {
+      conditions.push({
+        OR: [
+          { languages: { has: language } },
+          { user: { languages: { some: { languageName: { equals: language, mode: 'insensitive' } } } } }
+        ]
+      });
+    }
+
+    if (q) {
+      conditions.push({
+        OR: [
+          { displayName: { contains: q, mode: 'insensitive' } },
+          { bio: { contains: q, mode: 'insensitive' } },
+          { institutionName: { contains: q, mode: 'insensitive' } },
+          { currentRole: { contains: q, mode: 'insensitive' } },
+          { headline: { contains: q, mode: 'insensitive' } },
+        ]
+      });
+    }
+
+    const where = { AND: conditions };
     const orderBy = sortBy === 'price' ? { pricePerSession: 'asc' } : sortBy === 'sessions' ? { totalSessions: 'desc' } : sortBy === 'newest' ? { createdAt: 'desc' } : { rating: 'desc' };
 
     const [mentorsList, total] = await Promise.all([
@@ -76,7 +119,32 @@ async function searchMentors(req, res) {
         include: {
           category: true,
           user: {
-            select: { name: true, avatar: true, presenceStatus: true, lastSeen: true }
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              avatar: true,
+              presenceStatus: true,
+              lastSeen: true,
+              headline: true,
+              bannerImageUrl: true,
+              bannerPosition: true,
+              currentCompany: true,
+              university: true,
+              skills: true,
+              city: true,
+              state: true,
+              country: true,
+              languages: {
+                select: { id: true, languageCode: true, languageName: true, proficiency: true, displayOrder: true }
+              },
+              _count: {
+                select: {
+                  followers: true,
+                  following: true,
+                }
+              }
+            }
           }
         },
         orderBy,
@@ -86,13 +154,31 @@ async function searchMentors(req, res) {
       prisma.mentor.count({ where }),
     ]);
 
-    const mentors = mentorsList.map(m => {
+    const mentors = await Promise.all(mentorsList.map(async (m) => {
       const { institutionEmail, googleAccessToken, googleRefreshToken, googleCalendarId, ...safe } = m;
-      return enrichPresence(safe);
-    });
+      const compName = safe.company || (safe.institutionType === 'COMPANY' ? safe.institutionName : safe.user?.currentCompany);
+      const uniName = safe.institutionType === 'COLLEGE' ? safe.institutionName : safe.user?.university;
+
+      const [companyOrg, universityOrg] = await Promise.all([
+        compName ? resolveOrganization(compName, 'COMPANY') : null,
+        uniName ? resolveOrganization(uniName, 'UNIVERSITY') : null,
+      ]);
+
+      const safeWithPresence = enrichPresence(safe);
+      return {
+        ...safeWithPresence,
+        followersCount: safe.user?._count?.followers || 0,
+        followingCount: safe.user?._count?.following || 0,
+        companyBranding: companyOrg,
+        universityBranding: universityOrg,
+      };
+    }));
 
     res.json({ mentors, total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Search failed' }); }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Search failed' });
+  }
 }
 
 async function getMentorPublic(req, res) {
@@ -102,7 +188,34 @@ async function getMentorPublic(req, res) {
       include: {
         category: true,
         user: {
-          select: { name: true, avatar: true, presenceStatus: true, lastSeen: true }
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatar: true,
+            presenceStatus: true,
+            lastSeen: true,
+            headline: true,
+            bannerImageUrl: true,
+            bannerPosition: true,
+            currentCompany: true,
+            university: true,
+            skills: true,
+            city: true,
+            state: true,
+            country: true,
+            websiteUrl: true,
+            socialLinks: true,
+            languages: {
+              select: { id: true, languageCode: true, languageName: true, proficiency: true, displayOrder: true }
+            },
+            _count: {
+              select: {
+                followers: true,
+                following: true,
+              }
+            }
+          }
         },
         reviews: {
           where: { isVisible: true },
@@ -116,9 +229,28 @@ async function getMentorPublic(req, res) {
     });
     if (!mentorRaw) return res.status(404).json({ error: 'Mentor not found' });
     const { institutionEmail, googleAccessToken, googleRefreshToken, googleCalendarId, ...safeMentor } = mentorRaw;
-    const mentor = enrichPresence(safeMentor);
+
+    const compName = safeMentor.company || (safeMentor.institutionType === 'COMPANY' ? safeMentor.institutionName : safeMentor.user?.currentCompany);
+    const uniName = safeMentor.institutionType === 'COLLEGE' ? safeMentor.institutionName : safeMentor.user?.university;
+
+    const [companyOrg, universityOrg] = await Promise.all([
+      compName ? resolveOrganization(compName, 'COMPANY') : null,
+      uniName ? resolveOrganization(uniName, 'UNIVERSITY') : null,
+    ]);
+
+    const mentor = {
+      ...enrichPresence(safeMentor),
+      followersCount: safeMentor.user?._count?.followers || 0,
+      followingCount: safeMentor.user?._count?.following || 0,
+      companyBranding: companyOrg,
+      universityBranding: universityOrg,
+    };
+
     res.json({ mentor });
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed' });
+  }
 }
 
 async function getMentorAvailability(req, res) {
@@ -266,6 +398,28 @@ async function updateOwnProfile(req, res) {
     if (locality !== undefined) data.locality = locality;
     if (postalCode !== undefined) data.postalCode = postalCode;
 
+    // Headline, Company, Role, Banner
+    if (req.body.headline !== undefined) {
+      data.headline = req.body.headline;
+      await prisma.user.update({ where: { id: req.user.id }, data: { headline: req.body.headline } }).catch(() => {});
+    }
+    if (req.body.company !== undefined) {
+      data.company = req.body.company;
+      await prisma.user.update({ where: { id: req.user.id }, data: { currentCompany: req.body.company } }).catch(() => {});
+    }
+    if (req.body.currentRole !== undefined) {
+      data.currentRole = req.body.currentRole;
+      await prisma.user.update({ where: { id: req.user.id }, data: { currentRole: req.body.currentRole } }).catch(() => {});
+    }
+    if (req.body.bannerImageUrl !== undefined) {
+      data.bannerImageUrl = req.body.bannerImageUrl;
+      await prisma.user.update({ where: { id: req.user.id }, data: { bannerImageUrl: req.body.bannerImageUrl } }).catch(() => {});
+    }
+    if (req.body.bannerPosition !== undefined) {
+      data.bannerPosition = req.body.bannerPosition;
+      await prisma.user.update({ where: { id: req.user.id }, data: { bannerPosition: req.body.bannerPosition } }).catch(() => {});
+    }
+
     // Concatenate address into location string
     if (city || state || country) {
       data.location = [city, state, country].filter(Boolean).join(', ');
@@ -293,7 +447,7 @@ async function updateOwnProfile(req, res) {
       data,
       include: {
         category: true,
-        user: { select: { name: true, avatar: true, presenceStatus: true, lastSeen: true } }
+        user: { select: { name: true, avatar: true, presenceStatus: true, lastSeen: true, bannerImageUrl: true, bannerPosition: true, headline: true } }
       }
     });
 
@@ -315,6 +469,54 @@ async function updateAvatar(req, res) {
   } catch (e) {
     console.error('[MENTOR_CONTROLLER] Update avatar error:', e);
     res.status(500).json({ error: 'Upload failed' });
+  }
+}
+
+async function updateMentorBanner(req, res) {
+  try {
+    let bannerImageUrl = req.body.bannerUrl;
+    if (req.file) {
+      bannerImageUrl = await uploadImage(req.file, 'banners');
+    }
+    if (!bannerImageUrl) {
+      return res.status(400).json({ error: 'No banner image uploaded' });
+    }
+    const bannerPosition = req.body.bannerPosition || '50% 50%';
+
+    await Promise.all([
+      prisma.mentor.updateMany({
+        where: { userId: req.user.id },
+        data: { bannerImageUrl, bannerPosition }
+      }),
+      prisma.user.update({
+        where: { id: req.user.id },
+        data: { bannerImageUrl, bannerPosition }
+      })
+    ]);
+
+    res.json({ success: true, bannerImageUrl, bannerPosition });
+  } catch (err) {
+    console.error('updateMentorBanner error:', err);
+    res.status(500).json({ error: 'Failed to update banner' });
+  }
+}
+
+async function removeMentorBanner(req, res) {
+  try {
+    await Promise.all([
+      prisma.mentor.updateMany({
+        where: { userId: req.user.id },
+        data: { bannerImageUrl: null }
+      }),
+      prisma.user.update({
+        where: { id: req.user.id },
+        data: { bannerImageUrl: null }
+      })
+    ]);
+    res.json({ success: true, message: 'Banner removed' });
+  } catch (err) {
+    console.error('removeMentorBanner error:', err);
+    res.status(500).json({ error: 'Failed to remove banner' });
   }
 }
 
@@ -669,6 +871,8 @@ module.exports = {
   getOwnProfile,
   updateOwnProfile,
   updateAvatar,
+  updateMentorBanner,
+  removeMentorBanner,
   uploadDoc,
   getAvailability,
   setAvailability,
