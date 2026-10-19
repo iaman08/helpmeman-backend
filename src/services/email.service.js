@@ -169,8 +169,8 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
   const plainText = text || html.replace(/<[^>]*>/g, '');
   const errors = [];
 
-  // Try Resend first
-  if (config.resend.apiKey) {
+  // Try Resend first (unless known to have an invalid key)
+  if (config.resend.apiKey && !global.__resendKeyInvalid) {
     console.log(`[EMAIL] 🔑 Trying Resend (key: ${config.resend.apiKey.substring(0, 10)}...)`);
     try {
       const res = await sendResendEmailWithRetry({ to, subject, html, from: config.smtp.fromEmail });
@@ -188,6 +188,10 @@ async function sendEmail({ to, subject, html, text, userId, templateType = 'gene
       }
       return { success: true, provider: 'resend', id: res.id };
     } catch (error) {
+      if (error.statusCode === 401 || (error.message && error.message.includes('API key is invalid'))) {
+        console.warn(`[EMAIL] ⚠️ Resend API key is invalid — disabling Resend, using Gmail SMTP.`);
+        global.__resendKeyInvalid = true;
+      }
       console.error(`[EMAIL] ⚠️ Resend failed: ${error.message}`);
       errors.push(`Resend failed: ${error.message}`);
     }

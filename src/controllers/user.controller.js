@@ -317,7 +317,30 @@ async function getBookings(req, res) {
     const where = { userId: req.user.id };
     if (status) where.status = status;
     const [bookings, total] = await Promise.all([
-      prisma.booking.findMany({ where, include: { mentor: { select: { displayName: true, avatar: true, institutionName: true } } }, orderBy: { scheduledAt: 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
+      prisma.booking.findMany({
+        where,
+        include: {
+          mentor: {
+            select: {
+              id: true,
+              displayName: true,
+              avatar: true,
+              institutionName: true,
+              googleCalendarTimezone: true,
+            },
+          },
+          user: {
+            select: {
+              name: true,
+              email: true,
+              avatar: true,
+            },
+          },
+        },
+        orderBy: { scheduledAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: parseInt(limit),
+      }),
       prisma.booking.count({ where }),
     ]);
     res.json({ bookings, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });

@@ -555,13 +555,29 @@ async function getMentorBookings(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({ where: { userId: req.user.id } });
     if (!mentor) return res.json({ bookings: [], total: 0, page: 1, totalPages: 1 });
-    const { filter = 'upcoming', page = 1, limit = 10 } = req.query;
+    const { filter = 'upcoming', status, page = 1, limit = 10 } = req.query;
     const where = { mentorId: mentor.id };
-    if (filter === 'upcoming') { where.scheduledAt = { gte: new Date() }; where.status = { in: ['CONFIRMED', 'PENDING'] }; }
-    else if (filter === 'past') { where.scheduledAt = { lt: new Date() }; }
-    else if (filter === 'cancelled') { where.status = 'CANCELLED'; }
+    if (status) {
+      where.status = status;
+    } else if (filter === 'upcoming') {
+      where.scheduledAt = { gte: new Date() };
+      where.status = { in: ['CONFIRMED', 'PENDING'] };
+    } else if (filter === 'past') {
+      where.scheduledAt = { lt: new Date() };
+    } else if (filter === 'cancelled') {
+      where.status = 'CANCELLED';
+    }
     const [bookings, total] = await Promise.all([
-      prisma.booking.findMany({ where, include: { user: { select: { name: true, email: true, avatar: true } } }, orderBy: { scheduledAt: filter === 'upcoming' ? 'asc' : 'desc' }, skip: (page - 1) * limit, take: parseInt(limit) }),
+      prisma.booking.findMany({
+        where,
+        include: {
+          user: { select: { name: true, email: true, avatar: true } },
+          mentor: { select: { displayName: true, avatar: true, institutionName: true, googleCalendarTimezone: true } },
+        },
+        orderBy: { scheduledAt: filter === 'upcoming' ? 'asc' : 'desc' },
+        skip: (page - 1) * limit,
+        take: parseInt(limit),
+      }),
       prisma.booking.count({ where }),
     ]);
     res.json({ bookings, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });

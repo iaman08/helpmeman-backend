@@ -175,14 +175,15 @@ async function createBooking(req, res) {
         meetLink: finalMeetLink,
       }).catch((err) => console.error('[booking] Email send error:', err.message));
 
-      // In-app notifications
-      await Promise.all([
+      // In-app notifications & push (asynchronous, non-blocking, sendEmail: false since dedicated confirmation emails are already sent above)
+      Promise.all([
         sendNotification({
           userId: booking.userId,
           type: 'BOOKING_CONFIRMED',
           title: 'Session confirmed! 🎉',
           body: `Your session with ${fullBooking.mentor.displayName} is confirmed. 100% coupon discount applied.`,
           metadata: { bookingId: booking.id, meetLink: finalMeetLink },
+          sendEmail: false,
         }),
         sendNotification({
           mentorId: booking.mentorId,
@@ -190,8 +191,9 @@ async function createBooking(req, res) {
           title: 'New session booked! 📅',
           body: `${fullBooking.user.name} booked a ${booking.durationMinutes}-minute session with you (Test/Free Coupon). Meet link: ${finalMeetLink}`,
           metadata: { bookingId: booking.id, userId: booking.userId, meetLink: finalMeetLink },
+          sendEmail: false,
         }),
-      ]);
+      ]).catch((err) => console.error('[booking] In-app notification error:', err.message));
 
       return res.json({
         booking: { ...booking, meetLink: finalMeetLink },
@@ -335,14 +337,15 @@ async function verifyPayment(req, res) {
       meetLink: finalMeetLink,
     }).catch((err) => console.error('[booking] Email send error:', err.message));
 
-    // Step 10: In-app notifications for both users
-    await Promise.all([
+    // Step 10: In-app notifications for both users (asynchronous, non-blocking, sendEmail: false)
+    Promise.all([
       sendNotification({
         userId: booking.userId,
         type: 'BOOKING_CONFIRMED',
         title: 'Session confirmed! 🎉',
         body: `Your session with ${fullBooking.mentor.displayName} is confirmed. Your Google Meet link is ready.`,
         metadata: { bookingId: booking.id, meetLink: finalMeetLink },
+        sendEmail: false,
       }),
       sendNotification({
         mentorId: booking.mentorId,
@@ -350,8 +353,9 @@ async function verifyPayment(req, res) {
         title: 'New session booked! 📅',
         body: `${fullBooking.user.name} booked a ${booking.durationMinutes}-minute session with you. Meet link: ${finalMeetLink}`,
         metadata: { bookingId: booking.id, userId: booking.userId, meetLink: finalMeetLink },
+        sendEmail: false,
       }),
-    ]);
+    ]).catch((err) => console.error('[booking] In-app notification error:', err.message));
 
     res.json({
       booking: confirmed,

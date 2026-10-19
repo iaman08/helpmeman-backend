@@ -10,6 +10,7 @@
 
 const { google } = require('googleapis');
 const { getAuthedClientForMentor } = require('./googleOAuth.service');
+const config = require('../config/env');
 
 /**
  * Format a DateTime in the mentor's configured timezone for the Calendar API.
@@ -19,6 +20,24 @@ function makeDateTime(isoDate, timezone) {
     dateTime: new Date(isoDate).toISOString(),
     timeZone: timezone || 'Asia/Kolkata',
   };
+}
+
+/**
+ * Build authorized client for the platform's Google account
+ */
+function getPlatformAuthedClient() {
+  if (!config.google?.clientId || !config.google?.clientSecret || !config.google?.refreshToken) {
+    return null;
+  }
+  const oauth2Client = new google.auth.OAuth2(
+    config.google.clientId,
+    config.google.clientSecret,
+    config.google.redirectUri
+  );
+  oauth2Client.setCredentials({
+    refresh_token: config.google.refreshToken,
+  });
+  return oauth2Client;
 }
 
 const DEFAULT_MEET_LINK = 'https://meet.google.com/qhs-wase-kny?pli=1';
@@ -37,20 +56,29 @@ const DEFAULT_MEET_LINK = 'https://meet.google.com/qhs-wase-kny?pli=1';
 async function createMeetingEvent({ booking, mentor, user, timezone }) {
   try {
     const tz = timezone || mentor.googleCalendarTimezone || 'Asia/Kolkata';
-    const authClient = await getAuthedClientForMentor(mentor);
+    let authClient = await getAuthedClientForMentor(mentor);
 
-    if (!authClient) {
-      console.warn(`[googleMeet] Mentor ${mentor.id} has no Google Calendar connected — using default Meet link.`);
-      return { googleEventId: null, meetLink: DEFAULT_MEET_LINK };
+    // Fallback to platform-level Google account if mentor hasn't connected theirs
+    if (!authClient && config.google?.refreshToken) {
+      console.log(`[googleMeet] Mentor ${mentor.id} has no calendar connected — using platform Google account.`);
+      authClient = getPlatformAuthedClient();
     }
-
-    const calendar = google.calendar({ version: 'v3', auth: authClient });
 
     const mentorEmail = mentor.user?.email || mentor.institutionEmail;
     const menteeEmail = user.email;
 
     const startTime = new Date(booking.scheduledAt);
     const endTime = new Date(startTime.getTime() + booking.durationMinutes * 60 * 1000);
+
+    const cleanId = booking.id ? String(booking.id).replace(/[^a-zA-Z0-9]/g, '').slice(-9) : Math.random().toString(36).slice(2, 11);
+    const fallbackMeetLink = `https://meet.google.com/lookup/hmm-${cleanId}`;
+
+    if (!authClient) {
+      console.warn(`[googleMeet] No Google account configured — using unique fallback Meet link.`);
+      return { googleEventId: null, meetLink: fallbackMeetLink };
+    }
+
+    const calendar = google.calendar({ version: 'v3', auth: authClient });
 
     const event = {
       summary: `HelpMeMan: Session with ${mentor.displayName}`,
@@ -62,26 +90,25 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
         `Duration: ${booking.durationMinutes} minutes`,
         `Booking ID: ${booking.id}`,
         ``,
-        `Meeting Link: ${DEFAULT_MEET_LINK}`,
-        `Please join 5 minutes early to test your connection.`,
+        `Please join 5 minutes early to test your audio & video.`,
       ].join('\n'),
       start: makeDateTime(startTime, tz),
       end: makeDateTime(endTime, tz),
       attendees: [
         { email: menteeEmail, displayName: user.name },
-        { email: mentorEmail, displayName: mentor.displayName, organizer: true },
+        ...(mentorEmail ? [{ email: mentorEmail, displayName: mentor.displayName }] : []),
       ],
       conferenceData: {
         createRequest: {
-          requestId: `hmm-${booking.id}`,
+          requestId: `hmm-${booking.id}-${Date.now()}`,
           conferenceSolutionKey: { type: 'hangoutsMeet' },
         },
       },
       reminders: {
         useDefault: false,
         overrides: [
-          { method: 'email',  minutes: 60 },  // 1 hour before
-          { method: 'popup',  minutes: 15 },  // 15 min before
+          { method: 'email', minutes: 60 },  // 1 hour before
+          { method: 'popup', minutes: 15 },  // 15 min before
         ],
       },
       guestsCanModify: false,
@@ -97,11 +124,35 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
 
     const dynamicMeetLink =
       response.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri ||
+      response.data.hangoutLink ||
       null;
 
-    const finalMeetLink = dynamicMeetLink || DEFAULT_MEET_LINK;
+    const finalMeetLink = dynamicMeetLink || fallbackMeetLink;
 
     console.log(`[googleMeet] Event created: ${response.data.id} | Meet: ${finalMeetLink}`);
+
+    // Update event description to explicitly include Google Meet Link
+    if (dynamicMeetLink && response.data.id) {
+      try {
+        await calendar.events.patch({
+          calendarId: 'primary',
+          eventId: response.data.id,
+          resource: {
+            description: [
+              `Mentorship session on HelpMeMan.`,
+              ``,
+              `Mentor: ${mentor.displayName}`,
+              `Mentee: ${user.name}`,
+              `Duration: ${booking.durationMinutes} minutes`,
+              `Booking ID: ${booking.id}`,
+              ``,
+              `Google Meet Link: ${dynamicMeetLink}`,
+              `Please join 5 minutes early to test your connection.`,
+            ].join('\n'),
+          },
+        });
+      } catch (_) {}
+    }
 
     return {
       googleEventId: response.data.id,
@@ -109,8 +160,8 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
     };
   } catch (error) {
     console.error('[googleMeet] createMeetingEvent error:', error.message);
-    // Fallback to default Meet link so booking always has a valid link
-    return { googleEventId: null, meetLink: DEFAULT_MEET_LINK };
+    const cleanId = booking?.id ? String(booking.id).replace(/[^a-zA-Z0-9]/g, '').slice(-9) : 'session';
+    return { googleEventId: null, meetLink: `https://meet.google.com/lookup/hmm-${cleanId}` };
   }
 }
 
@@ -126,7 +177,10 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
 async function updateMeetingEvent(mentor, googleEventId, newScheduledAt, durationMinutes, timezone) {
   try {
     const tz = timezone || mentor.googleCalendarTimezone || 'Asia/Kolkata';
-    const authClient = await getAuthedClientForMentor(mentor);
+    let authClient = await getAuthedClientForMentor(mentor);
+    if (!authClient && config.google?.refreshToken) {
+      authClient = getPlatformAuthedClient();
+    }
     if (!authClient || !googleEventId) return;
 
     const calendar = google.calendar({ version: 'v3', auth: authClient });
@@ -158,7 +212,10 @@ async function updateMeetingEvent(mentor, googleEventId, newScheduledAt, duratio
  */
 async function cancelMeetingEvent(mentor, googleEventId) {
   try {
-    const authClient = await getAuthedClientForMentor(mentor);
+    let authClient = await getAuthedClientForMentor(mentor);
+    if (!authClient && config.google?.refreshToken) {
+      authClient = getPlatformAuthedClient();
+    }
     if (!authClient || !googleEventId) return;
 
     const calendar = google.calendar({ version: 'v3', auth: authClient });
