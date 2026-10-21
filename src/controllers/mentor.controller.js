@@ -434,6 +434,18 @@ async function updateOwnProfile(req, res) {
       }
     }
 
+    // Custom/Default Google Meet Link (so mentor is always the host)
+    if (req.body.customMeetLink !== undefined) {
+      let meet = req.body.customMeetLink;
+      if (meet && typeof meet === 'string') {
+        meet = meet.trim();
+        if (meet && !meet.startsWith('http://') && !meet.startsWith('https://')) {
+          meet = 'https://' + meet;
+        }
+      }
+      data.customMeetLink = meet || null;
+    }
+
     // If mentor updates displayName, also sync it with the parent User record's name
     if (displayName !== undefined) {
       await prisma.user.update({
@@ -656,7 +668,7 @@ async function getGoogleCalendarStatus(req, res) {
   try {
     const mentor = await prisma.mentor.findUnique({
       where: { userId: req.user.id },
-      select: { googleCalendarConnected: true, googleCalendarTimezone: true },
+      select: { googleCalendarConnected: true, googleCalendarTimezone: true, customMeetLink: true },
     });
     if (!mentor) {
       if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN' || req.user.email?.toLowerCase().endsWith('@helpmeman.com')) {
@@ -664,6 +676,7 @@ async function getGoogleCalendarStatus(req, res) {
           connected: true,
           timezone: 'Asia/Kolkata',
           isAdminPreview: true,
+          customMeetLink: null,
         });
       }
       return res.status(404).json({ error: 'Mentor profile not found' });
@@ -671,6 +684,7 @@ async function getGoogleCalendarStatus(req, res) {
     res.json({
       connected: mentor.googleCalendarConnected ?? false,
       timezone: mentor.googleCalendarTimezone || 'Asia/Kolkata',
+      customMeetLink: mentor.customMeetLink || null,
     });
   } catch (e) { res.status(500).json({ error: 'Failed' }); }
 }

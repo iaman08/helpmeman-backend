@@ -11,7 +11,7 @@
 
 const prisma = require('../config/prisma');
 const { createOrder, verifyPaymentSignature, initiateRefund } = require('../services/payment.service');
-const { createMeetingEvent, updateMeetingEvent, cancelMeetingEvent } = require('../services/googleMeet.service');
+const { createMeetingEvent, updateMeetingEvent, cancelMeetingEvent, isValidMeetLink } = require('../services/googleMeet.service');
 const { sendNotification } = require('../services/notification.service');
 const { sendBookingConfirmationEmails } = require('../services/email.service');
 const config = require('../config/env');
@@ -130,8 +130,9 @@ async function createBooking(req, res) {
         },
       });
 
-      // Create Google Calendar event + Meet link
-      let finalMeetLink = 'https://meet.google.com/qhs-wase-kny?pli=1';
+      // Create Google Calendar event + Meet link (mentor is host)
+      let finalMeetLink = fullBooking.mentor?.customMeetLink || fullBooking.mentor?.googleCalendarId || null;
+      if (!isValidMeetLink(finalMeetLink)) finalMeetLink = null;
       let googleEventId = null;
       try {
         const meetEvent = await createMeetingEvent({
@@ -140,7 +141,7 @@ async function createBooking(req, res) {
           user: fullBooking.user,
           timezone: fullBooking.mentor.googleCalendarTimezone,
         });
-        if (meetEvent?.meetLink) finalMeetLink = meetEvent.meetLink;
+        if (meetEvent?.meetLink && isValidMeetLink(meetEvent.meetLink)) finalMeetLink = meetEvent.meetLink;
         if (meetEvent?.googleEventId) googleEventId = meetEvent.googleEventId;
 
         await prisma.booking.update({
@@ -148,7 +149,7 @@ async function createBooking(req, res) {
           data: { googleEventId, meetLink: finalMeetLink },
         });
       } catch (meetErr) {
-        console.warn('[booking] Google Meet event creation failed, using fallback link:', meetErr.message);
+        console.warn('[booking] Google Meet event creation failed:', meetErr.message);
         await prisma.booking.update({
           where: { id: booking.id },
           data: { meetLink: finalMeetLink },
@@ -274,14 +275,17 @@ async function verifyPayment(req, res) {
       },
     });
 
-    // Step 4: Create Google Calendar event + Meet link (defaults to https://meet.google.com/qhs-wase-kny?pli=1)
+    // Step 4: Create Google Calendar event + Meet link (mentor is host)
     const { googleEventId, meetLink } = await createMeetingEvent({
       booking: fullBooking,
       mentor: fullBooking.mentor,
       user: fullBooking.user,
       timezone: fullBooking.mentor.googleCalendarTimezone,
     });
-    const finalMeetLink = meetLink || 'https://meet.google.com/qhs-wase-kny?pli=1';
+    const mentorCustom = fullBooking.mentor?.customMeetLink || fullBooking.mentor?.googleCalendarId || null;
+    const finalMeetLink = (meetLink && isValidMeetLink(meetLink))
+      ? meetLink
+      : (mentorCustom && isValidMeetLink(mentorCustom) ? mentorCustom : null);
 
     // Step 5: Confirm booking in DB
     const confirmed = await prisma.booking.update({
@@ -384,13 +388,84 @@ async function getMeetLink(req, res) {
       return res.status(400).json({ error: 'Booking is not confirmed yet' });
     }
 
+    const validMeet = booking.meetLink && isValidMeetLink(booking.meetLink) ? booking.meetLink : null;
+
     res.json({
-      meetLink: booking.meetLink || 'https://meet.google.com/qhs-wase-kny?pli=1',
+      meetLink: validMeet,
       scheduledAt: booking.scheduledAt,
     });
   } catch (e) {
     console.error('[booking] getMeetLink error:', e);
     res.status(500).json({ error: 'Failed to get meet link' });
+  }
+}
+
+// ── UPDATE MEET LINK (Mentor or Admin) ────────────────────────────────────────
+async function updateMeetLink(req, res) {
+  try {
+    const { id } = req.params;
+    let { meetLink, setAsDefault } = req.body;
+
+    if (!meetLink || typeof meetLink !== 'string') {
+      return res.status(400).json({ error: 'Google Meet link is required' });
+    }
+
+    meetLink = meetLink.trim();
+    if (!meetLink.startsWith('http://') && !meetLink.startsWith('https://')) {
+      meetLink = 'https://' + meetLink;
+    }
+
+    if (!isValidMeetLink(meetLink)) {
+      return res.status(400).json({
+        error: 'Please enter a valid Google Meet link (e.g. https://meet.google.com/abc-defg-hij)',
+      });
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: {
+        mentor: true,
+        user: true,
+      },
+    });
+
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    // Authorization: only mentor of this booking or admin can update
+    const isMentor = booking.mentor?.userId === req.user.id;
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isMentor && !isAdmin) {
+      return res.status(403).json({ error: 'Only the session mentor can update the meeting link' });
+    }
+
+    const updated = await prisma.booking.update({
+      where: { id },
+      data: { meetLink },
+    });
+
+    // Optionally update mentor's default meet link
+    if (booking.mentorId && (setAsDefault || !booking.mentor?.customMeetLink)) {
+      await prisma.mentor.update({
+        where: { id: booking.mentorId },
+        data: { customMeetLink: meetLink },
+      }).catch(() => {});
+    }
+
+    // In-app notification for mentee
+    if (booking.userId) {
+      sendNotification({
+        userId: booking.userId,
+        type: 'BOOKING_UPDATE',
+        title: 'Google Meet Link Ready',
+        body: `${booking.mentor?.displayName || 'Your mentor'} updated the Google Meet link for your session.`,
+        metadata: { bookingId: booking.id, meetLink },
+      }).catch(() => {});
+    }
+
+    res.json({ success: true, meetLink: updated.meetLink });
+  } catch (err) {
+    console.error('[booking] updateMeetLink error:', err);
+    res.status(500).json({ error: 'Failed to update meeting link' });
   }
 }
 
@@ -678,4 +753,4 @@ async function submitBookingIntake(req, res) {
   }
 }
 
-module.exports = { createBooking, verifyPayment, getMeetLink, rescheduleBooking, cancelBooking, submitBookingIntake };
+module.exports = { createBooking, verifyPayment, getMeetLink, updateMeetLink, rescheduleBooking, cancelBooking, submitBookingIntake };

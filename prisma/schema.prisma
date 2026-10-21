@@ -465,6 +465,7 @@ model Mentor {
   googleRefreshToken       String?          @db.Text  // AES-256-GCM encrypted
   googleTokenExpiresAt     DateTime?
   googleCalendarTimezone   String?          @default("Asia/Kolkata")
+  customMeetLink           String?          // Mentor's default Google Meet link (mentor is host)
   totalSessions       Int              @default(0)
   rating              Float            @default(0)
   avgRating           Float?           @default(0)

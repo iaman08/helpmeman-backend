@@ -75,7 +75,7 @@ router.get('/oauth/status', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MEN
   try {
     const mentor = await prisma.mentor.findUnique({
       where: { userId: req.user.id },
-      select: { googleCalendarConnected: true, googleCalendarTimezone: true },
+      select: { googleCalendarConnected: true, googleCalendarTimezone: true, customMeetLink: true },
     });
 
     if (!mentor) {
@@ -84,6 +84,7 @@ router.get('/oauth/status', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MEN
           connected: true,
           timezone: 'Asia/Kolkata',
           isAdminPreview: true,
+          customMeetLink: null,
         });
       }
       return res.status(404).json({ error: 'Mentor profile not found' });
@@ -92,6 +93,7 @@ router.get('/oauth/status', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MEN
     res.json({
       connected: mentor.googleCalendarConnected ?? false,
       timezone: mentor.googleCalendarTimezone || 'Asia/Kolkata',
+      customMeetLink: mentor.customMeetLink || null,
     });
   } catch (error) {
     console.error('[google.routes] /oauth/status error:', error.message);
@@ -185,6 +187,36 @@ router.put('/calendar/timezone', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN',
   } catch (error) {
     console.error('[google.routes] /calendar/timezone error:', error.message);
     res.status(500).json({ error: 'Failed to update timezone' });
+  }
+});
+
+// ── PUT /api/google/calendar/meet-link ─────────────────────────────────────────
+// Let mentor update their default Google Meet link (mentor is host)
+router.put('/calendar/meet-link', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR'), async (req, res) => {
+  try {
+    let { meetLink } = req.body;
+    if (meetLink !== null && meetLink !== undefined && String(meetLink).trim() !== '') {
+      meetLink = String(meetLink).trim();
+      if (!meetLink.startsWith('http://') && !meetLink.startsWith('https://')) {
+        meetLink = 'https://' + meetLink;
+      }
+      if (!meetLink.includes('meet.google.com/')) {
+        return res.status(400).json({ error: 'Please enter a valid Google Meet link (e.g. https://meet.google.com/abc-defg-hij)' });
+      }
+    } else {
+      meetLink = null;
+    }
+
+    const mentor = await prisma.mentor.update({
+      where: { userId: req.user.id },
+      data: { customMeetLink: meetLink },
+      select: { customMeetLink: true },
+    });
+
+    res.json({ success: true, customMeetLink: mentor.customMeetLink });
+  } catch (error) {
+    console.error('[google.routes] /calendar/meet-link error:', error.message);
+    res.status(500).json({ error: 'Failed to update Google Meet link' });
   }
 });
 
