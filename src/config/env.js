@@ -25,6 +25,8 @@ module.exports = {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     redirectUri: process.env.GOOGLE_REDIRECT_URI,
     refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
+    meetApiKey: process.env.MEET_SERVICE_API_KEY || process.env.CENTRAL_MEET_API_KEY || null,
+    centralEmail: process.env.CENTRAL_GOOGLE_EMAIL || 'admin.helpmeman@gmail.com',
     sheetsWebhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL || process.env.GOOGLE_DOCS_WEBHOOK_URL,
   },
   razorpay: {

@@ -753,4 +753,57 @@ async function submitBookingIntake(req, res) {
   }
 }
 
-module.exports = { createBooking, verifyPayment, getMeetLink, updateMeetLink, rescheduleBooking, cancelBooking, submitBookingIntake };
+/**
+ * POST /api/bookings/:id/provision-meet
+ * Auto-provisions a fresh Google Meet meeting for an existing booking using the central meeting service.
+ */
+async function provisionMeetLink(req, res) {
+  try {
+    const { id } = req.params;
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: {
+        mentor: true,
+        user: true,
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    const isAuthorized =
+      req.user.id === booking.userId ||
+      req.user.id === booking.mentor?.userId ||
+      req.user.role === 'SUPER_ADMIN' ||
+      req.user.role === 'ADMIN';
+
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to provision meetings for this booking' });
+    }
+
+    const { provisionMeetingForBooking } = require('../services/centralMeet.service');
+    const result = await provisionMeetingForBooking(id);
+
+    return res.json({
+      success: true,
+      message: 'Google Meet link successfully provisioned',
+      meetLink: result.meeting.meetUrl,
+      booking: result.booking,
+    });
+  } catch (error) {
+    console.error('[booking] provisionMeetLink error:', error.message);
+    return res.status(500).json({ error: 'Failed to provision Google Meet link', details: error.message });
+  }
+}
+
+module.exports = {
+  createBooking,
+  verifyPayment,
+  getMeetLink,
+  updateMeetLink,
+  rescheduleBooking,
+  cancelBooking,
+  submitBookingIntake,
+  provisionMeetLink,
+};

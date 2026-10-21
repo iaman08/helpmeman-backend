@@ -153,55 +153,35 @@ async function createMeetingEvent({ booking, mentor, user, timezone }) {
       };
     }
 
-    // 3. Tertiary: Fallback to platform-level Google account if configured and working
-    if (config.google?.refreshToken) {
-      try {
-        const platformAuth = getPlatformAuthedClient();
-        if (platformAuth) {
-          const mentorEmail = mentor.user?.email || mentor.institutionEmail;
-          const menteeEmail = user.email;
-          const startTime = new Date(booking.scheduledAt);
-          const endTime = new Date(startTime.getTime() + booking.durationMinutes * 60 * 1000);
+    // 3. Tertiary: Fallback to centralized platform Google Meet service
+    try {
+      const { createCentralMeeting } = require('./centralMeet.service');
+      const mentorEmail = mentor.user?.email || mentor.institutionEmail;
+      const menteeEmail = user.email;
 
-          const calendar = google.calendar({ version: 'v3', auth: platformAuth });
-          const response = await calendar.events.insert({
-            calendarId: 'primary',
-            resource: {
-              summary: `HelpMeMan: Session with ${mentor.displayName}`,
-              description: `Mentorship session on HelpMeMan with mentor ${mentor.displayName} and mentee ${user.name}.`,
-              start: makeDateTime(startTime, tz),
-              end: makeDateTime(endTime, tz),
-              attendees: [
-                { email: menteeEmail, displayName: user.name },
-                ...(mentorEmail ? [{ email: mentorEmail, displayName: mentor.displayName }] : []),
-              ],
-              conferenceData: {
-                createRequest: {
-                  requestId: `hmm-plat-${booking.id}-${Date.now()}`,
-                  conferenceSolutionKey: { type: 'hangoutsMeet' },
-                },
-              },
-            },
-            conferenceDataVersion: 1,
-            sendUpdates: 'all',
-          });
+      if (mentorEmail && menteeEmail) {
+        const centralMeeting = await createCentralMeeting({
+          clientId: 'helpmeman-booking',
+          mentorId: mentor.id,
+          menteeId: user.id || booking.userId,
+          mentorEmail,
+          menteeEmail,
+          topic: `HelpMeMan: Session with ${mentor.displayName}`,
+          startTime: booking.scheduledAt,
+          durationMinutes: booking.durationMinutes,
+          idempotencyKey: `booking-${booking.id}`,
+        });
 
-          const platMeetLink =
-            response.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri ||
-            response.data.hangoutLink ||
-            null;
-
-          if (platMeetLink && isValidMeetLink(platMeetLink)) {
-            console.log(`[googleMeet] Event created on platform Google account: ${platMeetLink}`);
-            return {
-              googleEventId: response.data.id,
-              meetLink: platMeetLink,
-            };
-          }
+        if (centralMeeting?.meetUrl && isValidMeetLink(centralMeeting.meetUrl)) {
+          console.log(`[googleMeet] Event created via central Meet service: ${centralMeeting.meetUrl}`);
+          return {
+            googleEventId: centralMeeting.googleEventId,
+            meetLink: centralMeeting.meetUrl,
+          };
         }
-      } catch (platErr) {
-        console.warn(`[googleMeet] Platform Google account creation failed: ${platErr.message}`);
       }
+    } catch (centralErr) {
+      console.warn(`[googleMeet] Central Meet service creation fallback failed: ${centralErr.message}`);
     }
 
     // Never return broken enterprise lookup links!

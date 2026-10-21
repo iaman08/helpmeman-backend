@@ -62,6 +62,7 @@ const bugReportRoutes = require('./routes/bugReport.routes');
 const couponRoutes = require('./routes/coupon.routes');
 const linkedinRoutes = require('./routes/linkedin.routes');
 const organizationRoutes = require('./routes/organization.routes');
+const meetingRoutes = require('./routes/meeting.routes');
 const { ensureDefaultCoupons } = require('./services/coupon.service');
 
 const app = express();
@@ -240,6 +241,7 @@ app.use('/api/cp', cpProfileRoutes);
 app.use('/api/bugs', bugReportRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/organizations', organizationRoutes);
+app.use('/api/meetings', meetingRoutes);
 
 // Health check & db reaction cleaner
 app.get('/api/health', async (req, res) => {
