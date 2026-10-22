@@ -61,7 +61,8 @@ router.get('/oauth/url', authenticate, roleGuard('SUPER_ADMIN', 'ADMIN', 'MENTOR
     if (!mentor) return res.status(404).json({ error: 'Mentor profile not found' });
 
     const returnPath = req.query.returnPath || '/mentor/calendar';
-    const url = generateAuthUrl(mentor.id, { returnPath });
+    const redirectUri = req.query.redirectUri || undefined;
+    const url = generateAuthUrl(mentor.id, { returnPath, redirectUri });
     res.json({ url });
   } catch (error) {
     console.error('[google.routes] /oauth/url error:', error.message);

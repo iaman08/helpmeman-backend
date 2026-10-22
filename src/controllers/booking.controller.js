@@ -375,11 +375,16 @@ async function verifyPayment(req, res) {
 // ── GET MEET LINK ──────────────────────────────────────────────────────────────
 async function getMeetLink(req, res) {
   try {
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    const where = isAdmin
+      ? { id: req.params.id }
+      : {
+          id: req.params.id,
+          OR: [{ userId: req.user.id }, { mentor: { userId: req.user.id } }],
+        };
+
     const booking = await prisma.booking.findFirst({
-      where: {
-        id: req.params.id,
-        OR: [{ userId: req.user.id }, { mentor: { userId: req.user.id } }],
-      },
+      where,
       select: { meetLink: true, status: true, scheduledAt: true },
     });
 
