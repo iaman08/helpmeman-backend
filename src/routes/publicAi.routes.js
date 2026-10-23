@@ -361,4 +361,124 @@ Rules for response content:
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/public/ai/match-mentors
+// Understands the visitor's need, then ranks real approved mentors with a fit %.
+// ─────────────────────────────────────────────────────────────────────────────
+const { matchMentors } = require('../services/mentorMatch.service');
+
+const matchLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { trustProxy: false },
+  message: { error: 'Search limit reached. Please sign up for unlimited access.' },
+});
+
+// Small in-memory cache so every search doesn't hit the database.
+let mentorCache = { at: 0, rows: [] };
+const MENTOR_CACHE_MS = 60 * 1000;
+
+async function getMatchableMentors() {
+  if (Date.now() - mentorCache.at < MENTOR_CACHE_MS && mentorCache.rows.length) return mentorCache.rows;
+  const rows = await prisma.mentor.findMany({
+    where: { approvalStatus: 'APPROVED', isActive: true },
+    select: {
+      id: true, displayName: true, avatar: true, bio: true, headline: true,
+      currentRole: true, company: true, institutionName: true, department: true,
+      expertise: true, experienceYears: true, isOnline: true,
+      rating: true, avgRating: true, totalReviews: true, totalSessions: true,
+      pricePerSession: true, sessionDuration: true,
+      category: { select: { name: true } },
+    },
+    take: 500,
+  });
+  mentorCache = { at: Date.now(), rows };
+  return rows;
+}
+
+const INTENT_PROMPT = `You analyse a visitor's request on a mentorship platform and extract structured data.
+Return ONLY a valid JSON object (no markdown, no prose) with exactly these keys:
+{
+  "skills": string[],     // specific skills/topics wanted, e.g. "system design", "GTM", "resume review", "DSA"
+  "roles": string[],      // job roles of the ideal mentor, e.g. "product manager", "software engineer"
+  "companies": string[],  // companies/institutions/exams, e.g. "Google", "FAANG", "IIT", "UPSC"
+  "domains": string[],    // industries/fields, e.g. "fintech", "data science", "startups"
+  "maxBudgetInr": number | null,
+  "brief": string         // 3 short numbered steps (max 70 words total) of practical advice for this exact request, using **bold** for key terms. Do NOT mention any mentor names.
+}
+Use short lowercase-friendly terms (1-3 words). Max 5 items per array. Never invent budget; use null if absent.`;
+
+function safeParseJson(text) {
+  if (!text) return null;
+  const cleaned = text.replace(/```json|```/gi, '').trim();
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start === -1 || end === -1) return null;
+  try { return JSON.parse(cleaned.slice(start, end + 1)); } catch { return null; }
+}
+
+async function extractIntent(query) {
+  try {
+    const client = getClient();
+    const completion = await Promise.race([
+      client.chat.completions.create({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: INTENT_PROMPT },
+          { role: 'user', content: query },
+        ],
+        temperature: 0.2,
+        max_tokens: 450,
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('intent_timeout')), 9000)),
+    ]);
+    const parsed = safeParseJson(completion.choices[0]?.message?.content);
+    if (!parsed) return null;
+    const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 5) : []);
+    return {
+      skills: arr(parsed.skills),
+      roles: arr(parsed.roles),
+      companies: arr(parsed.companies),
+      domains: arr(parsed.domains),
+      maxBudgetInr: Number(parsed.maxBudgetInr) > 0 ? Number(parsed.maxBudgetInr) : null,
+      brief: typeof parsed.brief === 'string' ? parsed.brief.trim() : '',
+    };
+  } catch (err) {
+    console.warn('Intent extraction fallback:', err.message);
+    return null;
+  }
+}
+
+router.post('/match-mentors', matchLimiter, async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query || typeof query !== 'string' || query.trim().length < 3) {
+      return res.status(400).json({ error: 'Please describe what you need help with.' });
+    }
+    if (query.length > 500) {
+      return res.status(400).json({ error: 'Query too long (max 500 characters)' });
+    }
+
+    const text = query.trim();
+    const [entities, mentors] = await Promise.all([extractIntent(text), getMatchableMentors()]);
+
+    const { results, concepts } = matchMentors(mentors, text, entities || {}, 3);
+
+    res.json({
+      query: text,
+      brief: entities?.brief || '',
+      understood: concepts,
+      aiUnderstood: !!entities,
+      totalMentorsSearched: mentors.length,
+      mentors: results,
+    });
+  } catch (error) {
+    console.error('Mentor match error:', error.message);
+    res.status(500).json({ error: 'Could not find mentors right now. Please try again.' });
+  }
+});
+
 module.exports = router;
+
