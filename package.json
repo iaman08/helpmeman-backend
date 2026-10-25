@@ -16,7 +16,8 @@
     "db:test": "node scratch-db-test.js",
     "check-db": "node scratch_check_db.js",
     "test-smtp": "node src/test-smtp.js",
-    "test-chat": "node test_chat.js"
+    "test-chat": "node test_chat.js",
+    "test:onboarding": "node --test src/services/mentorOnboarding.test.js src/controllers/mentorOnboarding.test.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

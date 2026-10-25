@@ -157,62 +157,11 @@ async function verifySignupOTP(req, res) {
     let mentorResponse = null;
     if (isMentorSignup) {
       try {
-        const category = await prisma.category.upsert({
-          where: { slug: 'general-mentorship' },
-          update: {},
-          create: { name: 'General Mentorship', slug: 'general-mentorship', description: 'Cross-functional career and life mentorship' },
-        });
-
-        const mentorRecord = await prisma.mentor.upsert({
-          where: { userId: user.id },
-          update: {
-            approvalStatus: 'APPROVED',
-            isActive: true,
-          },
-          create: {
-            userId: user.id,
-            displayName: user.name,
-            bio: '',
-            institutionType: 'COMPANY',
-            institutionName: 'Independent',
-            institutionEmail: user.email,
-            approvalStatus: 'APPROVED',
-            isActive: true,
-            pricePerSession: 0,
-            sessionDuration: 30,
-            categoryId: category.id,
-            expertise: [],
-          },
-        });
-
-        const profile = await prisma.mentorProfile.upsert({
-          where: { mentorId: user.id },
-          update: {},
-          create: {
-            mentorId: user.id,
-            name: user.name,
-            onboardingStatus: 'IN_PROGRESS',
-          },
-        });
-
-        const onboarding = await prisma.mentorOnboarding.upsert({
-          where: { userId: user.id },
-          update: {},
-          create: {
-            userId: user.id,
-            currentQuestion: 0,
-            messages: [],
-            answers: [],
-            completed: false,
-          },
-        });
-
-        mentorResponse = {
-          id: mentorRecord.id,
-          approvalStatus: mentorRecord.approvalStatus,
-          isActive: mentorRecord.isActive,
-          onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
-        };
+        const state = await require('../services/mentorOnboarding.service').selectRole(user.id, 'MENTOR');
+        mentorResponse = state.mentor ? {
+          ...state.mentor,
+          onboardingCompleted: state.status === 'COMPLETED',
+        } : null;
       } catch (err) {
         console.error('Error initializing mentor database tables:', err);
       }
@@ -562,7 +511,7 @@ async function login(req, res) {
       ]);
       mentorData = {
         ...user.mentor,
-        onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
+        onboardingCompleted: Boolean(onboarding?.completed || ['COMPLETED', 'COMPLETED_EMAIL_SENT'].includes(profile?.onboardingStatus)),
       };
     }
 
@@ -849,62 +798,13 @@ async function googleLogin(req, res) {
 
     let mentorResponse = null;
     if (user.role === 'MENTOR') {
-      const category = await prisma.category.upsert({
-        where: { slug: 'general-mentorship' },
-        update: {},
-        create: { name: 'General Mentorship', slug: 'general-mentorship', description: 'Cross-functional career and life mentorship' },
-      });
-
-      const mentorRecord = await prisma.mentor.upsert({
-        where: { userId: user.id },
-        update: {
-          approvalStatus: 'APPROVED',
-          isActive: true,
-        },
-        create: {
-          userId: user.id,
-          displayName: user.name,
-          bio: '',
-          institutionType: 'COMPANY',
-          institutionName: 'Independent',
-          institutionEmail: user.email,
-          approvalStatus: 'APPROVED',
-          isActive: true,
-          pricePerSession: 0,
-          sessionDuration: 30,
-          categoryId: category.id,
-          expertise: [],
-        },
-      });
-
-      const profile = await prisma.mentorProfile.upsert({
-        where: { mentorId: user.id },
-        update: {},
-        create: {
-          mentorId: user.id,
-          name: user.name,
-          onboardingStatus: 'IN_PROGRESS',
-        },
-      });
-
-      const onboarding = await prisma.mentorOnboarding.upsert({
-        where: { userId: user.id },
-        update: {},
-        create: {
-          userId: user.id,
-          currentQuestion: 0,
-          messages: [],
-          answers: [],
-          completed: false,
-        },
-      });
-
-      mentorResponse = {
-        id: mentorRecord.id,
-        approvalStatus: mentorRecord.approvalStatus,
-        isActive: mentorRecord.isActive,
-        onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
-      };
+      // Signing in must preserve an existing admin decision. New candidates
+      // receive an interview draft; a public Mentor is created on submission.
+      const state = await require('../services/mentorOnboarding.service').selectRole(user.id, 'MENTOR');
+      mentorResponse = state.mentor ? {
+        ...state.mentor,
+        onboardingCompleted: state.status === 'COMPLETED',
+      } : null;
     }
 
     // Track last login
