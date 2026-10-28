@@ -35,6 +35,7 @@ const verifyOtpSchema = z.object({
     name: z.string().trim().min(2).max(100).optional(),
     email: z.string().trim().toLowerCase().email('Invalid email address format'),
     password: z.string().min(8).max(128).optional(),
+    phone: z.string().trim().max(30, 'Phone number cannot exceed 30 characters').optional(),
     otp: z.string().trim().length(6, 'OTP code must be exactly 6 digits').regex(/^\d+$/, 'OTP must contain digits only'),
     role: z.enum(['STUDENT', 'MENTOR', 'ADMIN', 'SUPER_ADMIN']).optional(),
     onboardingRole: z.enum(['STUDENT', 'MENTOR', 'MENTEE']).optional(),

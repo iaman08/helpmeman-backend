@@ -122,7 +122,7 @@ async function getProfile(req, res) {
 
     const enrichedMentor = mentor ? {
       ...mentor,
-      onboardingCompleted: Boolean(onboarding?.completed || profile?.onboardingStatus === 'COMPLETED'),
+      onboardingCompleted: Boolean(onboarding?.completed || ['COMPLETED', 'COMPLETED_EMAIL_SENT'].includes(profile?.onboardingStatus)),
       bannerImageUrl: mentor.bannerImageUrl || user?.bannerImageUrl || null,
       bannerPosition: mentor.bannerPosition || user?.bannerPosition || '50% 50%',
       headline: mentor.headline || user?.headline || null,

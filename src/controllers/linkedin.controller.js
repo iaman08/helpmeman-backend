@@ -239,6 +239,7 @@ async function publishMentorProfile(req, res) {
     const userId = req.user.id;
     const {
       displayName,
+      headline,
       bio,
       currentRole,
       company,
@@ -252,7 +253,7 @@ async function publishMentorProfile(req, res) {
       availabilities,
       avatar,
       experienceYears,
-    } = req.body;
+    } = require('../utils/mentorApplication').validateMentorApplication(req.body);
 
     if (!displayName || !bio) {
       return res.status(400).json({ error: 'Display name and bio are required.' });
@@ -288,125 +289,64 @@ async function publishMentorProfile(req, res) {
       country = parts[parts.length - 1];
     }
 
-    // Upsert Mentor record
-    const mentor = await prisma.mentor.upsert({
-      where: { userId },
-      update: {
-        displayName,
-        bio,
-        avatar: avatar || req.user.avatar || null,
-        currentRole: currentRole || null,
-        company: company || null,
-        expertise: skillsList,
-        categoryId: category.id,
-        pricePerSession: price * 100, // store in paise
-        sessionDuration: duration,
-        location: location || null,
-        city,
-        country,
-        languages: langs,
-        experienceYears: typeof experienceYears === 'number' ? experienceYears : null,
-        approvalStatus: 'APPROVED',
-        isActive: true,
-      },
-      create: {
-        userId,
-        displayName,
-        bio,
-        avatar: avatar || req.user.avatar || null,
-        institutionType: 'COMPANY',
-        institutionName: company || 'Independent',
-        institutionEmail: req.user.email,
-        currentRole: currentRole || null,
-        company: company || null,
-        expertise: skillsList,
-        categoryId: category.id,
-        pricePerSession: price * 100,
-        sessionDuration: duration,
-        location: location || null,
-        city,
-        country,
-        languages: langs,
-        experienceYears: typeof experienceYears === 'number' ? experienceYears : null,
-        approvalStatus: 'APPROVED',
-        isActive: true,
-      },
-    });
+    const answers = [
+      ['Display name', displayName], ['Headline', headline], ['Bio', bio],
+      ['Current role', currentRole], ['Company', company], ['Location', location],
+      ['Expertise', skillsList.join(', ')], ['Mentoring topics', (mentoringTopics || []).join(', ')],
+      ['Professional experience (years)', experienceYears], ['Languages', langs.join(', ')],
+      ['Price per session (INR)', price], ['Session duration (minutes)', duration],
+      ['Availability', JSON.stringify(availabilities || [])],
+    ].filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .map(([question, value]) => ({ question, questionKey: `linkedin_${question.toLowerCase().replace(/[^a-z]+/g, '_')}`, answer: String(value), skipped: false }));
 
-    // Update MentorProfile
-    await prisma.mentorProfile.upsert({
-      where: { mentorId: userId },
-      update: {
-        name: displayName,
-        preferredName: displayName.split(' ')[0] || displayName,
-        role: currentRole || null,
-        company: company || null,
-        location: location || null,
-        skills: skillsList,
-        expertiseTags: skillsList.slice(0, 8),
-        bio,
-        summary: bio,
-        onboardingStatus: 'COMPLETED',
-        completedAt: new Date(),
-      },
-      create: {
-        mentorId: userId,
-        name: displayName,
-        preferredName: displayName.split(' ')[0] || displayName,
-        role: currentRole || null,
-        company: company || null,
-        location: location || null,
-        skills: skillsList,
-        expertiseTags: skillsList.slice(0, 8),
-        bio,
-        summary: bio,
-        onboardingStatus: 'COMPLETED',
-        completedAt: new Date(),
-      },
-    });
-
-    // Update MentorOnboarding record
-    await prisma.mentorOnboarding.upsert({
-      where: { userId },
-      update: { completed: true },
-      create: { userId, completed: true, currentQuestion: 10, answers: [] },
-    });
-
-    // Save default availability if provided
-    if (Array.isArray(availabilities) && availabilities.length > 0) {
-      await prisma.availability.deleteMany({ where: { mentorId: mentor.id } });
-      await prisma.availability.createMany({
-        data: availabilities.map(a => ({
-          mentorId: mentor.id,
-          dayOfWeek: Number(a.dayOfWeek),
-          startTime: String(a.startTime || '09:00'),
-          endTime: String(a.endTime || '18:00'),
-          isActive: true,
-        })),
+    // Profile, submission, schedule and role must succeed together. A bad
+    // schedule must not leave behind an application marked as completed.
+    const mentor = await prisma.$transaction(async tx => {
+      const existingProfile = await tx.mentorProfile.findUnique({ where: { mentorId: userId } });
+      const profileData = {
+        name: displayName, preferredName: displayName.split(' ')[0], role: currentRole || null,
+        company: company || null, location: location || null, skills: skillsList,
+        expertiseTags: skillsList.slice(0, 8), bio, summary: bio,
+        experienceYears: experienceYears ?? null,
+        onboardingStatus: existingProfile?.onboardingStatus === 'COMPLETED_EMAIL_SENT' ? 'COMPLETED_EMAIL_SENT' : 'COMPLETED',
+        completedAt: existingProfile?.completedAt || new Date(),
+      };
+      const mentorData = {
+        displayName, headline: headline || null, bio, avatar: avatar || req.user.avatar || null,
+        currentRole: currentRole || null, company: company || null, expertise: skillsList,
+        institutionName: company || 'Independent', categoryId: category.id,
+        pricePerSession: Math.round(price * 100), sessionDuration: duration,
+        location: location || null, city, country, languages: langs, experienceYears: experienceYears ?? null,
+      };
+      const saved = await tx.mentor.upsert({
+        where: { userId },
+        // Preserve existing admin approval/rejection on retries or profile edits.
+        update: mentorData,
+        create: { ...mentorData, userId, institutionType: 'COMPANY', institutionEmail: req.user.email, approvalStatus: 'PENDING', isActive: false },
       });
-    }
-
-    // Save mentor memory from confirmed profile
-    try {
-      const memoryContent = `Mentor: ${displayName}\nRole: ${currentRole} at ${company}\nExpertise: ${skillsList.join(', ')}\nTopics: ${Array.isArray(mentoringTopics) ? mentoringTopics.join(', ') : ''}`;
-      await prisma.mentorMemory.create({
-        data: {
-          mentorId: userId,
-          content: memoryContent,
-          metadata: { type: 'linkedin_onboarding_published' },
-        },
+      await tx.mentorProfile.upsert({
+        where: { mentorId: userId }, update: profileData, create: { mentorId: userId, ...profileData },
       });
-    } catch (e) {}
-
-    // Send confirmation email
-    try {
-      const { sendMentorUnderReviewEmail, sendMentorApplicationToAdminEmail } = require('../services/email.service');
-      await sendMentorUnderReviewEmail(req.user).catch(() => {});
-      await sendMentorApplicationToAdminEmail(req.user, [
-        { question: 'Role & Company', answer: `${currentRole} at ${company}` },
-        { question: 'Expertise', answer: skillsList.join(', ') },
-      ]).catch(() => {});
-    } catch (e) {}
+      await tx.mentorOnboarding.upsert({
+        where: { userId }, update: { completed: true, answers, currentQuestion: answers.length },
+        create: { userId, completed: true, answers, currentQuestion: answers.length },
+      });
+      if (Array.isArray(availabilities)) {
+        await tx.availability.deleteMany({ where: { mentorId: saved.id } });
+        if (availabilities.length) await tx.availability.createMany({
+          data: availabilities.map(slot => ({ mentorId: saved.id, dayOfWeek: slot.dayOfWeek, startTime: slot.startTime, endTime: slot.endTime, isActive: true })),
+        });
+      }
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) {
+        await tx.user.update({ where: { id: userId }, data: { role: 'MENTOR', onboardingRole: 'MENTOR' } });
+      }
+      await tx.mentorMemory.create({
+        data: { mentorId: userId, content: answers.map(a => `${a.question}: ${a.answer}`).join('\n'), metadata: { type: 'linkedin_onboarding_published' } },
+      });
+      return saved;
+    });
+    require('../services/auth.service').invalidateCachedUser(userId);
+    await require('../services/mentorOnboarding.service').checkAndSendConfirmationEmail(userId);
 
     logAuditEvent({
       action: 'MENTOR_PROFILE_PUBLISHED',
@@ -422,11 +362,12 @@ async function publishMentorProfile(req, res) {
         id: mentor.id,
         approvalStatus: mentor.approvalStatus,
         isActive: mentor.isActive,
+        onboardingCompleted: true,
       },
     });
   } catch (error) {
     console.error('[LinkedIn Controller] publishMentorProfile error:', error.message);
-    res.status(500).json({ error: error.message || 'Failed to publish mentor profile' });
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to submit mentor profile' });
   }
 }
 
