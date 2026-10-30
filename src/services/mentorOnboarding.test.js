@@ -152,3 +152,25 @@ test('a slow role-selection request cannot erase an answer saved in another tab'
   assert.equal(state.currentQuestion, 1);
   assert.equal(state.answers[0].answer, 'Test Mentor');
 });
+
+test('legacy completed mentor profiles do not restart the interview when the draft flag is missing', async () => {
+  const ctx = setup(); await ctx.service.selectRole('candidate', 'MENTOR');
+  await ctx.prisma.mentor.create({ data: { userId: 'candidate', approvalStatus: 'APPROVED' } });
+  await ctx.prisma.mentorProfile.update({ where: { mentorId: 'candidate' }, data: { onboardingStatus: 'COMPLETED' } });
+  const state = await ctx.service.getState('candidate');
+  assert.equal(state.status, 'COMPLETED'); assert.equal(state.question, null);
+});
+
+for (const name of ['A', 'x'.repeat(101)]) test(`invalid full-name length ${name.length} does not advance onboarding`, async () => {
+  const ctx = setup(); await ctx.service.selectRole('candidate', 'MENTOR');
+  await assert.rejects(ctx.service.answer('candidate', name), /name/i);
+  assert.equal((await ctx.service.getState('candidate')).currentQuestion, 0);
+});
+
+test('concurrent LinkedIn publish retries preserve a single submission memory', async () => {
+  const { loadController, response } = require('./onboardingTestFixture');
+  const ctx = setup(); const controller = loadController('linkedin', ctx);
+  const req = { user: ctx.rows().user[0], body: { displayName: 'Test Mentor', bio: 'Professional background', pricePerSession: 0, sessionDuration: 30 } };
+  await Promise.all([controller.publishMentorProfile(req, response()), controller.publishMentorProfile(req, response())]);
+  assert.equal(ctx.rows().mentorMemory.length, 1);
+});
