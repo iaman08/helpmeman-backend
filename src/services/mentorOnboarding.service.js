@@ -154,15 +154,16 @@ async function getState(userId) {
   const answers = onboarding?.answers || [];
   const index = onboarding?.currentQuestion || 0;
   const list = getQuestionList(answers);
-  const status = onboarding?.completed ? 'COMPLETED'
+  const isCompleted = Boolean(onboarding?.completed || (mentor && ['COMPLETED', 'COMPLETED_EMAIL_SENT'].includes(profile?.onboardingStatus)));
+  const status = isCompleted ? 'COMPLETED'
     : (index >= list.length ? 'PROCESSING' : (user?.onboardingRole ? 'IN_PROGRESS' : 'NOT_STARTED'));
 
   return {
-    role: user?.onboardingRole,
+    role: user?.onboardingRole || (user?.role === 'MENTOR' ? 'MENTOR' : null),
     status,
     currentQuestion: index,
     totalQuestions: list.length,
-    question: onboarding?.completed ? null : getQuestion(index, answers),
+    question: isCompleted ? null : getQuestion(index, answers),
     answers,
     messages: onboarding?.messages || [],
     profile,
@@ -281,19 +282,19 @@ async function summarize(userId) {
       company: byKey.institution || byKey.educational_background || 'HelpMeMan Network',
       location: 'India',
       skills: allSkills.length > 0 ? allSkills : [track || 'Mentorship & Strategy'],
-      bio: `${track || 'Mentor'} from ${byKey.institution || byKey.educational_background || 'HelpMeMan'}. Background: ${byKey.exam_background || byKey.exam_details || byKey.career_journey || 'Experienced Guide'}.`,
+      bio: `${track || 'Mentor'} from ${byKey.institution || byKey.educational_background || 'HelpMeMan'}. Background: ${byKey.exam_background || byKey.exam_details || byKey.career_journey || 'Additional background not provided'}.`,
       mentoringStyle: {
         scenarioApproach: byKey.scenario_mock_scores || byKey.scenario_confused_student || '',
         retentionOrStrategy: byKey.scenario_biology_retention || byKey.scenario_main_vs_advanced || byKey.scenario_gk_weakness || '',
         guidancePlan: byKey.scenario_mbbs_guidance || byKey.career_journey || '',
       },
       goals: byKey.target_student_level || byKey.mentoring_goals || 'Student Mentorship & Guidance',
-      summary: `${track || 'Mentor'} (${byKey.current_status || 'Specialist'}). Areas: ${allSkills.slice(0, 4).join(', ')}. Availability: ${byKey.daily_time_commitment || '1-2 hours/day'}.`,
+      summary: [`${track || 'Mentor'}${byKey.current_status ? ` (${byKey.current_status})` : ''}.`, allSkills.length ? `Areas: ${allSkills.slice(0, 4).join(', ')}.` : '', byKey.daily_time_commitment ? `Availability: ${byKey.daily_time_commitment}.` : ''].filter(Boolean).join(' '),
       expertiseTags: allSkills.slice(0, 8),
       personality: {
         communication_style: 'Empathetic & Structured',
         mentoring_style: 'Domain-tailored & Strategic',
-        experience_level: byKey.experience_years || byKey.prior_experience || 'Experienced Mentor',
+        experience_level: byKey.experience_years || byKey.prior_experience || 'Not specified',
         preferred_mentees: byKey.comfortable_mentees || 'Aspirants & Students',
       },
     };
@@ -505,7 +506,10 @@ function validateAnswer(question, answerText, skip) {
   if (typeof answerText !== 'string' || !answerText.trim()) throw new Error('Please enter an answer');
   const value = answerText.trim();
   if (value.length > 10000) throw new Error('Please keep your answer under 10,000 characters');
-  if (question.key === 'email_address' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+  if (question.key === 'full_name' && (value.length < 2 || value.length > 100)) {
+    throw new Error('Enter a name between 2 and 100 characters');
+  }
+  if (question.key === 'email_address' && (value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))) {
     throw new Error('Please enter a valid email address');
   }
   if (question.type === 'single_choice' && !question.options.includes(value)) {

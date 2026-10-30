@@ -16,8 +16,8 @@ const { logAuditEvent } = require('../services/auditLog.service');
 async function getAuthUrl(req, res) {
   try {
     const userId = req.user?.id || null;
-    const returnPath = req.query.returnPath || '/onboarding';
-    const redirectUri = req.query.redirectUri || null;
+    const returnPath = ['/onboarding', '/become-a-mentor'].includes(req.query.returnPath) ? req.query.returnPath : '/onboarding';
+    const redirectUri = null; // Provider callback is configured by the server, never by a request.
 
     const url = linkedinService.generateAuthUrl({ userId, returnPath, redirectUri });
     res.json({ url });
@@ -34,19 +34,9 @@ async function getAuthUrl(req, res) {
 async function handleOAuthCallback(req, res) {
   const { code, state, error, error_description } = req.query;
 
-  // Derive frontend base dynamically (handles localhost dev environment smoothly)
-  let frontendBase = config.frontendUrl || 'http://localhost:3000';
-  if (state) {
-    try {
-      const verified = linkedinService.verifyState(state);
-      if (verified && verified.redirectUri) {
-        frontendBase = new URL(verified.redirectUri).origin;
-      }
-    } catch {}
-  }
-  if (req.headers.host?.includes('localhost') || req.headers.referer?.includes('localhost')) {
-    frontendBase = 'http://localhost:3000';
-  }
+  // The OAuth callback can be hosted on the API domain. Always return to the
+  // configured web app; callback URI and request headers are not frontend URLs.
+  const frontendBase = new URL(config.frontendUrl || 'http://localhost:3000').origin;
 
   // 1. Handle user cancellation or provider error
   if (error) {
@@ -125,6 +115,7 @@ async function handleOAuthCallback(req, res) {
     }
 
     userId = targetUser.id;
+    require('../services/auth.service').invalidateCachedUser(userId);
 
     // 6. Save encrypted LinkedIn credentials & normalized profile
     try {
@@ -171,7 +162,7 @@ async function handleOAuthCallback(req, res) {
       secure: process.env.NODE_ENV === 'production',
     });
 
-    const returnPath = verifiedState.returnPath || '/onboarding';
+    const returnPath = ['/onboarding', '/become-a-mentor'].includes(verifiedState.returnPath) ? verifiedState.returnPath : '/onboarding';
     const redirectUrl = new URL(returnPath, frontendBase);
     redirectUrl.searchParams.set('linkedin', 'success');
     redirectUrl.searchParams.set('token', accessToken);
@@ -290,7 +281,7 @@ async function publishMentorProfile(req, res) {
     }
 
     const answers = [
-      ['Display name', displayName], ['Headline', headline], ['Bio', bio],
+      ['Category', slug], ['Avatar', avatar], ['Display name', displayName], ['Headline', headline], ['Bio', bio],
       ['Current role', currentRole], ['Company', company], ['Location', location],
       ['Expertise', skillsList.join(', ')], ['Mentoring topics', (mentoringTopics || []).join(', ')],
       ['Professional experience (years)', experienceYears], ['Languages', langs.join(', ')],
@@ -301,50 +292,63 @@ async function publishMentorProfile(req, res) {
 
     // Profile, submission, schedule and role must succeed together. A bad
     // schedule must not leave behind an application marked as completed.
-    const mentor = await prisma.$transaction(async tx => {
-      const existingProfile = await tx.mentorProfile.findUnique({ where: { mentorId: userId } });
-      const profileData = {
-        name: displayName, preferredName: displayName.split(' ')[0], role: currentRole || null,
-        company: company || null, location: location || null, skills: skillsList,
-        expertiseTags: skillsList.slice(0, 8), bio, summary: bio,
-        experienceYears: experienceYears ?? null,
-        onboardingStatus: existingProfile?.onboardingStatus === 'COMPLETED_EMAIL_SENT' ? 'COMPLETED_EMAIL_SENT' : 'COMPLETED',
-        completedAt: existingProfile?.completedAt || new Date(),
-      };
-      const mentorData = {
-        displayName, headline: headline || null, bio, avatar: avatar || req.user.avatar || null,
-        currentRole: currentRole || null, company: company || null, expertise: skillsList,
-        institutionName: company || 'Independent', categoryId: category.id,
-        pricePerSession: Math.round(price * 100), sessionDuration: duration,
-        location: location || null, city, country, languages: langs, experienceYears: experienceYears ?? null,
-      };
-      const saved = await tx.mentor.upsert({
-        where: { userId },
-        // Preserve existing admin approval/rejection on retries or profile edits.
-        update: mentorData,
-        create: { ...mentorData, userId, institutionType: 'COMPANY', institutionEmail: req.user.email, approvalStatus: 'PENDING', isActive: false },
-      });
-      await tx.mentorProfile.upsert({
-        where: { mentorId: userId }, update: profileData, create: { mentorId: userId, ...profileData },
-      });
-      await tx.mentorOnboarding.upsert({
-        where: { userId }, update: { completed: true, answers, currentQuestion: answers.length },
-        create: { userId, completed: true, answers, currentQuestion: answers.length },
-      });
-      if (Array.isArray(availabilities)) {
-        await tx.availability.deleteMany({ where: { mentorId: saved.id } });
-        if (availabilities.length) await tx.availability.createMany({
-          data: availabilities.map(slot => ({ mentorId: saved.id, dayOfWeek: slot.dayOfWeek, startTime: slot.startTime, endTime: slot.endTime, isActive: true })),
-        });
+    let mentor;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        mentor = await prisma.$transaction(async tx => {
+          const submitted = await tx.mentorOnboarding.findUnique({ where: { userId } });
+          if (submitted?.completed && JSON.stringify(submitted.answers) === JSON.stringify(answers)) {
+            const existing = await tx.mentor.findUnique({ where: { userId } });
+            if (existing) return existing;
+          }
+          const existingProfile = await tx.mentorProfile.findUnique({ where: { mentorId: userId } });
+          const profileData = {
+            name: displayName, preferredName: displayName.split(' ')[0], role: currentRole || null,
+            company: company || null, location: location || null, skills: skillsList,
+            expertiseTags: skillsList.slice(0, 8), bio, summary: bio,
+            experienceYears: experienceYears ?? null,
+            onboardingStatus: existingProfile?.onboardingStatus === 'COMPLETED_EMAIL_SENT' ? 'COMPLETED_EMAIL_SENT' : 'COMPLETED',
+            completedAt: existingProfile?.completedAt || new Date(),
+          };
+          const mentorData = {
+            displayName, headline: headline || null, bio, avatar: avatar || req.user.avatar || null,
+            currentRole: currentRole || null, company: company || null, expertise: skillsList,
+            institutionName: company || 'Independent', categoryId: category.id,
+            pricePerSession: Math.round(price * 100), sessionDuration: duration,
+            location: location || null, city, country, languages: langs, experienceYears: experienceYears ?? null,
+          };
+          const saved = await tx.mentor.upsert({
+            where: { userId },
+            // Preserve existing admin approval/rejection on retries or profile edits.
+            update: mentorData,
+            create: { ...mentorData, userId, institutionType: 'COMPANY', institutionEmail: req.user.email, approvalStatus: 'PENDING', isActive: false },
+          });
+          await tx.mentorProfile.upsert({
+            where: { mentorId: userId }, update: profileData, create: { mentorId: userId, ...profileData },
+          });
+          await tx.mentorOnboarding.upsert({
+            where: { userId }, update: { completed: true, answers, currentQuestion: answers.length },
+            create: { userId, completed: true, answers, currentQuestion: answers.length },
+          });
+          if (Array.isArray(availabilities)) {
+            await tx.availability.deleteMany({ where: { mentorId: saved.id } });
+            if (availabilities.length) await tx.availability.createMany({
+              data: availabilities.map(slot => ({ mentorId: saved.id, dayOfWeek: slot.dayOfWeek, startTime: slot.startTime, endTime: slot.endTime, isActive: true })),
+            });
+          }
+          if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) {
+            await tx.user.update({ where: { id: userId }, data: { role: 'MENTOR', onboardingRole: 'MENTOR' } });
+          }
+          await tx.mentorMemory.create({
+            data: { mentorId: userId, content: answers.map(a => `${a.question}: ${a.answer}`).join('\n'), metadata: { type: 'linkedin_onboarding_published' } },
+          });
+          return saved;
+        }, { isolationLevel: 'Serializable' });
+        break;
+      } catch (error) {
+        if (error.code !== 'P2034' || attempt === 2) throw error;
       }
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) {
-        await tx.user.update({ where: { id: userId }, data: { role: 'MENTOR', onboardingRole: 'MENTOR' } });
-      }
-      await tx.mentorMemory.create({
-        data: { mentorId: userId, content: answers.map(a => `${a.question}: ${a.answer}`).join('\n'), metadata: { type: 'linkedin_onboarding_published' } },
-      });
-      return saved;
-    });
+    }
     require('../services/auth.service').invalidateCachedUser(userId);
     await require('../services/mentorOnboarding.service').checkAndSendConfirmationEmail(userId);
 

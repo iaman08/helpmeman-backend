@@ -120,26 +120,22 @@ async function verifySignupOTP(req, res) {
       },
     });
 
-    if (createError || !data.user) {
-      return res.status(400).json({ error: 'Failed to create user account. Please try again.' });
-    }
-
-    // Now log in to retrieve a session/tokens
+    // A previous attempt may have created the provider account before a DB
+    // or network failure. Reuse it only after authenticating the same password.
     const { data: sessionData, error: loginError } = await supabase.auth.signInWithPassword({
-      email: email.toLowerCase(),
-      password,
+      email: email.toLowerCase(), password,
     });
-
-    if (loginError || !sessionData.session) {
-      return res.status(400).json({ error: 'Account creation failed. Please try again.' });
+    const providerUser = data?.user || sessionData?.user;
+    if (loginError || !sessionData?.session || !providerUser || (data?.user && sessionData.user && data.user.id !== sessionData.user.id)) {
+      return res.status(400).json({ error: createError ? 'Could not finish account creation. Try signing in, or request a new code to retry.' : 'Could not sign in to the new account. Please try signing in again.' });
     }
 
-    let user = await prisma.user.findUnique({ where: { id: data.user.id } });
+    let user = await prisma.user.findUnique({ where: { id: providerUser.id } });
     if (!user) {
       user = await prisma.user.create({
         data: {
-          id: data.user.id,
-          name: name || data.user.user_metadata?.name || email.split('@')[0],
+          id: providerUser.id,
+          name: name || providerUser.user_metadata?.name || email.split('@')[0],
           email: email.toLowerCase(),
           passwordHash: '',
           phone: phone || null,
@@ -148,6 +144,14 @@ async function verifySignupOTP(req, res) {
           onboardingRole: isMentorSignup ? 'MENTOR' : 'MENTEE',
         },
       });
+    }
+
+    if (isMentorSignup && !['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'MENTOR', onboardingRole: 'MENTOR', isEmailVerified: true, ...(phone ? { phone } : {}) },
+      });
+      require('../services/auth.service').invalidateCachedUser(user.id);
     }
 
     // Call role synchronization (upgrade-only safety rule)
@@ -204,6 +208,24 @@ async function verifySignupOTP(req, res) {
   } catch (error) {
     console.error('Verify signup OTP error:', error);
     res.status(500).json({ error: 'Verification failed' });
+  }
+}
+
+async function verifyExistingEmailOTP(req, res) {
+  try {
+    const { email, otp } = req.body;
+    const normalized = email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({ where: { email: normalized } });
+    if (!user) return res.status(400).json({ error: 'Sign up before verifying this email address.' });
+    const result = await verifyOTP(normalized, otp, 'signup');
+    if (!result.valid) return res.status(400).json({ error: result.error || 'Invalid or expired verification code.' });
+    const { error } = await supabase.auth.admin.updateUserById(user.id, { email_confirm: true });
+    if (error) return res.status(503).json({ error: 'Could not confirm your email. Request a new code and try again.' });
+    await prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } });
+    require('../services/auth.service').invalidateCachedUser(user.id);
+    return res.json({ verified: true, message: 'Email verified. Please sign in to continue.' });
+  } catch {
+    return res.status(503).json({ error: 'Email verification is temporarily unavailable. Please try again.' });
   }
 }
 
@@ -737,6 +759,10 @@ async function resendOTP(req, res) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
+    if (!['signup', 'verify', 'reset'].includes(purpose)) return res.status(400).json({ error: 'Choose a valid verification purpose.' });
+    const permission = await canRequestOTP(normalizedEmail);
+    if (!permission.allowed) return res.status(429).json({ error: permission.reason, cooldown: permission.cooldown || 60 });
+
     if (purpose === 'signup' || purpose === 'verify') {
       const otp = generateOTP();
       await storeOTP(normalizedEmail, otp, 'signup');
@@ -1005,5 +1031,5 @@ function getCaptcha(req, res) {
   }
 }
 
-module.exports = { register, verifySignupOTP, registerMentor, verifyMentorOTP, verifyEmail, login, googleLogin, refresh, logout, forgotPassword, verifyResetOTP, resetPassword, resendOTP, changePassword, getCaptcha };
+module.exports = { register, verifySignupOTP, verifyExistingEmailOTP, registerMentor, verifyMentorOTP, verifyEmail, login, googleLogin, refresh, logout, forgotPassword, verifyResetOTP, resetPassword, resendOTP, changePassword, getCaptcha };
 

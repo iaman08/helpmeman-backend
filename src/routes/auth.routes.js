@@ -20,6 +20,7 @@ const webauthn = require('../controllers/webauthn.controller');
 
 router.post('/register', authLimiter, validate(registerSchema), auth.register);
 router.post('/verify-signup-otp', otpLimiter, validate(verifyOtpSchema), auth.verifySignupOTP);
+router.post('/verify-email-otp', otpLimiter, validate(verifyOtpSchema), auth.verifyExistingEmailOTP);
 router.post('/register/mentor', authLimiter, validate(registerSchema), auth.registerMentor);
 router.post('/verify-mentor-otp', authLimiter, validate(verifyOtpSchema), auth.verifyMentorOTP);
 router.post('/verify-email', authLimiter, auth.verifyEmail);
